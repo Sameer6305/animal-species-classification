@@ -1,0 +1,23 @@
+{
+  "split": "test",
+  "n_images": 7576,
+  "preprocessing": "scripts/preprocessing.py",
+  "reported_test_accuracy": 0.7992344244984161,
+  "fp32": {
+    "onnx": "models/resnet50.onnx",
+    "top1_accuracy": 0.7992344244984161,
+    "top5_accuracy": 0.9730728616684267,
+    "abs_diff_vs_reported": 0.0,
+    "matches_reported": true,
+    "eval_seconds": 265.3
+  },
+  "int8": {
+    "onnx": "models/resnet50.int8.onnx",
+    "top1_accuracy": 0.7895987328405492,
+    "top5_accuracy": 0.9692449841605069,
+    "top1_agreement_with_fp32": 0.9326821541710665,
+    "agreement_threshold": 0.99,
+    "usable": false,
+    "eval_seconds": 329.4
+  }
+}

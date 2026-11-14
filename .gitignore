@@ -18,3 +18,5 @@ outputs/logs/
 .DS_Store
 Thumbs.db
 *.log
+# Phase 0 model artifacts (large; hosted externally, see scripts/download_models.sh)
+models/*.onnx

@@ -1,0 +1,63 @@
+{
+  "default": "resnet50",
+  "models": [
+    {
+      "id": "resnet50",
+      "display_name": "ResNet50",
+      "architecture": "torchvision resnet50, fc = Linear(2048, 80)",
+      "onnx": "models/resnet50.onnx",
+      "variants": {
+        "fp32": {
+          "onnx": "models/resnet50.onnx",
+          "usable": true
+        },
+        "int8": {
+          "onnx": "models/resnet50.int8.onnx",
+          "usable": false,
+          "note": "int8 dynamic quantization (uint8 per-tensor weights; ConvInteger/MatMulInteger ops); usable only if test-set top-1 agreement with fp32 >= 99% (see eval file)",
+          "top1_agreement_with_fp32": 0.9326821541710665
+        }
+      },
+      "inputs": {
+        "name": "input",
+        "layout": "NCHW",
+        "dtype": "float32"
+      },
+      "outputs": {
+        "logits": "N x 80",
+        "features": "N x 2048 x 7 x 7 (layer4)"
+      },
+      "classes": "models/classes.json",
+      "num_classes": 80,
+      "fc": {
+        "npz": "models/resnet50_fc.npz",
+        "json": "models/resnet50_fc.json"
+      },
+      "input_size": [
+        224,
+        224
+      ],
+      "resize": "bilinear, direct to 224x224 (no crop, aspect not preserved)",
+      "scale": "pixel / 255",
+      "mean": [
+        0.46290031,
+        0.44127762,
+        0.38908589
+      ],
+      "std": [
+        0.26581346,
+        0.2520165,
+        0.25977104
+      ],
+      "metrics": {
+        "results": "outputs/results/resnet50_results.json",
+        "evaluation": "outputs/results/resnet50_evaluation.json",
+        "onnx_eval": "models/resnet50_onnx_eval.json"
+      },
+      "cam": {
+        "layer": "layer4",
+        "method": "CAM == Grad-CAM for GAP->Linear head: heatmap_c = ReLU(sum_k W_fc[c,k] * features[k]); upsample 7x7 -> 224x224, normalize to [0,1]"
+      }
+    }
+  ]
+}
