@@ -2,18 +2,19 @@
 from __future__ import annotations
 
 import time
-from typing import Literal, Optional, Tuple
+from typing import Dict, Literal, Optional, Tuple
 
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from PIL import Image
 
 from app.config import Settings
-from app.deps import get_manager, get_settings
+from app.deps import get_kb, get_manager, get_settings
 from app.schemas import ErrorResponse, ExplainResponse, ImageInfo, Prediction, PredictResponse
 from app.services import cam
 from app.services.images import ImageValidationError, decode_image
 from app.services.inference import InferenceResult, ModelManager, OnnxModel
+from app.services.knowledge import SpeciesKB
 
 router = APIRouter(tags=["inference"])
 
@@ -64,6 +65,16 @@ def _predictions(model: OnnxModel, result: InferenceResult, k: int):
     return [Prediction(label=classes[i], index=i, probability=p) for i, p in result.top_k(k)]
 
 
+def _slugs(kb: SpeciesKB, labels) -> Dict[str, str]:
+    """label -> species slug, for linking predictions to the atlas (additive field)."""
+    out = {}
+    for label in labels:
+        slug = kb.slug_for_label(label)
+        if slug:
+            out[label] = slug
+    return out
+
+
 @router.post(
     "/predict",
     response_model=PredictResponse,
@@ -78,6 +89,7 @@ def predict(
     top_k: int = Form(5, ge=1, le=MAX_TOP_K, description="Number of classes to return (1-10)."),
     settings: Settings = Depends(get_settings),
     manager: ModelManager = Depends(get_manager),
+    kb: SpeciesKB = Depends(get_kb),
 ) -> PredictResponse:
     m, img, fmt = _load_request(file, model, settings, manager)
     result = m.run(img)
@@ -90,6 +102,7 @@ def predict(
         low_confidence_threshold=thr,
         inference_ms=round(result.inference_ms, 2),
         image=ImageInfo(width=img.width, height=img.height, format=fmt),
+        slugs=_slugs(kb, [p.label for p in preds]),
     )
 
 
@@ -112,6 +125,7 @@ def explain(
     colormap: Literal["jet", "amber"] = Form("jet", description="Overlay colormap: `jet` or the site `amber`."),
     settings: Settings = Depends(get_settings),
     manager: ModelManager = Depends(get_manager),
+    kb: SpeciesKB = Depends(get_kb),
 ) -> ExplainResponse:
     m, img, fmt = _load_request(file, model, settings, manager)
     if not m.supports_cam:
@@ -151,4 +165,5 @@ def explain(
         grid=[[round(float(v), 4) for v in row] for row in grid],
         inference_ms=round(result.inference_ms, 2),
         explain_ms=round(explain_ms, 2),
+        slugs=_slugs(kb, [p.label for p in preds] + [m.spec.classes[cls]]),
     )

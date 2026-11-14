@@ -1,7 +1,7 @@
 """Pydantic response models (also drive the OpenAPI schema at /docs)."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -74,6 +74,12 @@ class PredictResponse(BaseModel):
     low_confidence_threshold: float = Field(..., examples=[0.5])
     inference_ms: float = Field(..., description="Preprocessing + forward pass + softmax, server-side.", examples=[38.2])
     image: ImageInfo
+    slugs: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Species-atlas slug for each returned label (`GET /api/species/{slug}`); "
+        "empty if the species KB is not built.",
+        examples=[{"Zebra": "zebra"}],
+    )
 
 
 class ExplainResponse(BaseModel):
@@ -96,6 +102,12 @@ class ExplainResponse(BaseModel):
     grid: List[List[float]] = Field(..., description="Normalised [0,1] heatmap at feature-map resolution (e.g. 7x7).")
     inference_ms: float
     explain_ms: float = Field(..., description="CAM computation + upsampling + PNG encoding.")
+    slugs: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Species-atlas slug for each returned label (`GET /api/species/{slug}`); "
+        "empty if the species KB is not built.",
+        examples=[{"Zebra": "zebra"}],
+    )
 
 
 # ---------------------------------------------------------------- metrics / figures
@@ -149,3 +161,108 @@ class FigureInfo(BaseModel):
 
 class FiguresResponse(BaseModel):
     figures: List[FigureInfo]
+
+
+# ---------------------------------------------------------------- species knowledge base
+class SpeciesImage(BaseModel):
+    url: Optional[str] = None
+    thumb_url: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    artist: Optional[str] = Field(None, description="Author/attribution, HTML stripped.")
+    license: Optional[str] = Field(None, examples=["CC BY-SA 4.0"])
+    license_url: Optional[str] = None
+    source_url: Optional[str] = Field(None, description="File description page (Commons or iNaturalist).")
+    provider: Optional[str] = Field(None, examples=["Wikimedia Commons"])
+    file: Optional[str] = None
+
+
+class IucnStatus(BaseModel):
+    code: Optional[str] = Field(
+        None, description="LC/NT/VU/EN/CR/EW/EX/DD/NE; null for groups, domestic forms, hybrids.", examples=["VU"]
+    )
+    label: str = Field(..., examples=["Vulnerable", "Not applicable (group)"])
+    source: Optional[str] = Field(None, examples=["IUCN Red List via Wikidata (P141)"])
+    source_url: Optional[str] = None
+
+
+class ModelClassStats(BaseModel):
+    model: str = Field(..., examples=["resnet50"])
+    test_accuracy: Optional[float] = Field(None, description="Per-class test accuracy (recall).", examples=[0.95])
+    test_images: Optional[int] = Field(None, examples=[42])
+    source: Optional[str] = None
+
+
+class SpeciesSummary(BaseModel):
+    slug: str = Field(..., examples=["red-panda"])
+    label: str = Field(..., description="Class label used by the model.", examples=["Red panda"])
+    common_name: str = Field(..., examples=["Red panda"])
+    scientific_name: Optional[str] = Field(None, examples=["Ailurus fulgens"])
+    is_group: bool = Field(..., description="True when the label is a group of species, not a single species.")
+    animal_group: Optional[str] = Field(None, examples=["Mammal"])
+    thumb_url: Optional[str] = None
+    iucn_code: Optional[str] = Field(None, examples=["EN"])
+    iucn_label: Optional[str] = Field(None, examples=["Endangered"])
+    model_accuracy: Optional[float] = Field(None, description="ResNet50 per-class test accuracy.", examples=[0.93])
+
+
+class SpeciesListResponse(BaseModel):
+    count: int
+    total: int = Field(..., description="Number of species in the KB (before filtering).")
+    species: List[SpeciesSummary]
+
+
+class SpeciesDetail(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    label: str
+    slug: str
+    common_name: str
+    scientific_name: Optional[str] = None
+    rank: Optional[str] = None
+    is_group: bool
+    domestic: bool = False
+    rank_note: Optional[str] = None
+    taxonomy: Dict[str, Optional[str]] = Field(default_factory=dict)
+    animal_group: Optional[str] = None
+    summary: Optional[str] = None
+    description: Optional[str] = None
+    wikipedia_title: Optional[str] = None
+    wikipedia_url: Optional[str] = None
+    wikidata_id: Optional[str] = None
+    image: Optional[SpeciesImage] = None
+    iucn_status: IucnStatus
+    gbif_taxon_key: Optional[int] = Field(None, description="For GBIF Maps API v2 occurrence tiles.")
+    gbif_taxon: Optional[Dict[str, Any]] = None
+    inaturalist_taxon_id: Optional[int] = None
+    inaturalist_taxon: Optional[Dict[str, Any]] = None
+    inaturalist_observations: Optional[int] = None
+    model_stats: Optional[ModelClassStats] = None
+    fetched_at: Optional[str] = None
+
+
+# ---------------------------------------------------------------- chat
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=20000)
+
+
+class ChatContext(BaseModel):
+    species_slug: Optional[str] = Field(None, max_length=64, examples=["red-panda"])
+    label: Optional[str] = Field(None, max_length=64, description="Class label from a prediction.", examples=["Red panda"])
+
+
+class ChatRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"messages": [{"role": "user", "content": "Where do red pandas live?"}]},
+                {"messages": [{"role": "user", "content": "Is it endangered?"}],
+                 "context": {"species_slug": "polar-bear"}},
+            ]
+        }
+    )
+
+    messages: List[ChatMessage] = Field(..., min_length=1, max_length=100,
+                                        description="Conversation so far; the last message must be from the user.")
+    context: Optional[ChatContext] = None

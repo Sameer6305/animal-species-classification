@@ -8,15 +8,20 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.config import Settings, get_settings
-from app.routers import health, metrics, models, predict
+from app.routers import chat, health, metrics, models, predict, species
+from app.services.chat.retrieval import Retriever
+from app.services.chat.service import ChatService
 from app.services.inference import ModelManager
+from app.services.knowledge import SpeciesKB
 from app.services.metrics import load_metrics
+from app.services.ratelimit import RateLimiter
 from app.services.registry import load_registry
 
 log = logging.getLogger("wildlens")
@@ -24,7 +29,8 @@ log = logging.getLogger("wildlens")
 DESCRIPTION = """
 WildLens backend: identify an animal (80 classes) from a photo with an ONNX
 ResNet50, explain the prediction with a class activation map, and serve the
-project's training/evaluation metrics and figures.
+project's training/evaluation metrics and figures, a species knowledge base
+(80 classes), and a grounded "Field Guide" chat about any animal (SSE).
 
 * Inference runs on CPU with ONNX Runtime; the model is loaded once at startup.
 * Uploads: JPEG, PNG or WebP, validated by decoding; EXIF orientation applied.
@@ -33,9 +39,16 @@ project's training/evaluation metrics and figures.
 
 UPLOAD_PATHS = ("/api/predict", "/api/explain")
 MULTIPART_OVERHEAD = 64 * 1024
+CHAT_PATH = "/api/chat"
+# Generic User-Agent for all outbound requests (Wikipedia, Wikidata, iNaturalist, Groq, ...):
+# no personal names, e-mails or usernames.
+USER_AGENT = f"WildLens/{__version__} (educational student project)"
 
 
-def create_app(settings: Optional[Settings] = None) -> FastAPI:
+def create_app(
+    settings: Optional[Settings] = None, transport: Optional[httpx.AsyncBaseTransport] = None
+) -> FastAPI:
+    """``transport`` replaces the outbound HTTP transport (tests pass an ``httpx.MockTransport``)."""
     settings = settings or get_settings()
 
     @asynccontextmanager
@@ -46,10 +59,29 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         figure_dir = settings.resolve(settings.figures_dir)
         figure_names = metrics.list_figure_names(figure_dir)
         app.state.metrics = load_metrics(settings.resolve(settings.results_dir), figure_names)
-        log.info(
-            "WildLens API %s ready: models loaded=%s", __version__, list(app.state.manager.loaded)
+
+        app.state.kb = SpeciesKB.load(settings.resolve(settings.species_kb_path))
+        http = httpx.AsyncClient(
+            transport=transport,
+            headers={"User-Agent": USER_AGENT},
+            timeout=httpx.Timeout(settings.retrieval_timeout_s, connect=5.0),
+            follow_redirects=True,
         )
-        yield
+        app.state.http = http
+        resnet = app.state.metrics.get("resnet50") or {}
+        acc = (resnet.get("summary") or {}).get("test_accuracy")
+        retriever = Retriever(app.state.kb, http, settings.retrieval_timeout_s, settings.chat_live_lookup, acc)
+        app.state.chat = ChatService(settings, retriever, http)
+        app.state.chat_limiter = RateLimiter(settings.chat_rate_limit_per_minute, 60.0)
+        log.info(
+            "WildLens API %s ready: models loaded=%s, species=%d, chat providers=%s",
+            __version__, list(app.state.manager.loaded), len(app.state.kb),
+            [p.name for p in app.state.chat.llm_providers()] + ["fallback"],
+        )
+        try:
+            yield
+        finally:
+            await http.aclose()
 
     app = FastAPI(
         title="WildLens API",
@@ -60,6 +92,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             {"name": "inference", "description": "Classify photos and explain predictions."},
             {"name": "models", "description": "Model registry."},
             {"name": "research", "description": "Metrics and figures from the training runs."},
+            {"name": "species", "description": "Species knowledge base (80 classes)."},
+            {"name": "chat", "description": "Grounded Field Guide chat (Server-Sent Events)."},
             {"name": "health", "description": "Liveness/readiness."},
         ],
     )
@@ -81,9 +115,18 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                     status_code=413,
                     content={"detail": f"File too large; the limit is {settings.max_upload_mb:g} MB."},
                 )
+        if request.method == "POST" and request.url.path == CHAT_PATH:
+            length = request.headers.get("content-length")
+            if not (length and length.isdigit()):
+                return JSONResponse(status_code=411, content={"detail": "Content-Length is required."})
+            if int(length) > settings.chat_max_body_kb * 1024:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": f"Chat request too large; the limit is {settings.chat_max_body_kb} KB."},
+                )
         return await call_next(request)
 
-    for r in (predict.router, models.router, metrics.router, health.router):
+    for r in (predict.router, models.router, metrics.router, species.router, chat.router, health.router):
         app.include_router(r, prefix="/api")
     return app
 

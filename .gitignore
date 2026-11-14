@@ -23,3 +23,6 @@ models/*.onnx
 # Backend (Phase 1)
 backend/.venv/
 .pytest_cache/
+# Phase 2: species KB raw HTTP cache, backend secrets
+data/.kb_cache/
+backend/.env

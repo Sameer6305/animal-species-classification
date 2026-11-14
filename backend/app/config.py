@@ -8,16 +8,23 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-from pydantic import Field
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="WILDLENS_", extra="ignore")
+    # backend/.env is optional and gitignored (see backend/.env.example).
+    model_config = SettingsConfigDict(
+        env_prefix="WILDLENS_",
+        extra="ignore",
+        env_file=str(REPO_ROOT / "backend" / ".env"),
+        env_file_encoding="utf-8",
+        populate_by_name=True,
+    )
 
     repo_root: Path = REPO_ROOT
     registry_path: Path = Path("models/registry.json")
@@ -41,6 +48,35 @@ class Settings(BaseSettings):
     # downscaled so the longest side is at most this (keeps the JSON payload small).
     explain_max_side: int = Field(1024, ge=224, le=4096)
     overlay_alpha: float = Field(0.45, ge=0.0, le=1.0)
+
+    # ------------------------------------------------------------ Phase 2: species KB + chat
+    species_kb_path: Path = Path("data/species_kb.json")
+
+    # Groq (OpenAI-compatible, free tier, no card). Read from WILDLENS_GROQ_API_KEY or GROQ_API_KEY.
+    groq_api_key: Optional[SecretStr] = Field(
+        None, validation_alias=AliasChoices("WILDLENS_GROQ_API_KEY", "GROQ_API_KEY", "groq_api_key")
+    )
+    # Default chosen from https://console.groq.com/docs/models (checked 2026-11-14): the
+    # Llama-family *production* models are llama-3.3-70b-versatile and llama-3.1-8b-instant.
+    # 70B gives better grounded answers; switch to llama-3.1-8b-instant if limits bite.
+    groq_model: str = "llama-3.3-70b-versatile"
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    groq_retry_delay_s: float = Field(1.0, ge=0.0, le=10.0)  # wait before the single retry on 429/5xx
+
+    # Ollama (local, optional): disabled unless WILDLENS_OLLAMA_URL is set, e.g. http://127.0.0.1:11434
+    ollama_url: Optional[str] = None
+    ollama_model: str = "llama3.2"
+
+    chat_rate_limit_per_minute: int = Field(20, ge=0)  # per client IP; 0 disables
+    chat_max_messages: int = Field(20, ge=1, le=100)
+    chat_max_message_chars: int = Field(2000, ge=50, le=20000)
+    chat_max_body_kb: int = Field(64, ge=4)
+    chat_max_tokens: int = Field(700, ge=64, le=4096)
+    chat_timeout_s: float = Field(45.0, gt=0)  # total budget for one answer (retrieval + generation)
+    retrieval_timeout_s: float = Field(10.0, gt=0)
+    llm_connect_timeout_s: float = Field(5.0, gt=0)
+    llm_read_timeout_s: float = Field(20.0, gt=0)
+    chat_live_lookup: bool = True  # Wikipedia/Wikidata/iNaturalist lookups for animals outside the KB
 
     def resolve(self, p: Path) -> Path:
         return p if p.is_absolute() else (self.repo_root / p)
