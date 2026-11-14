@@ -25,8 +25,10 @@ def _check(img):
 
 
 def test_module_has_no_torch_dependency():
+    # Canonical module moved to the backend in Phase 1; scripts/preprocessing.py
+    # is a re-export shim (checked below to expose the very same functions).
     import ast
-    tree = ast.parse((ROOT / "scripts" / "preprocessing.py").read_text())
+    tree = ast.parse((ROOT / "backend" / "app" / "services" / "preprocessing.py").read_text())
     mods = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -34,6 +36,15 @@ def test_module_has_no_torch_dependency():
         elif isinstance(node, ast.ImportFrom) and node.module:
             mods.add(node.module.split(".")[0])
     assert mods <= {"__future__", "typing", "numpy", "PIL"}, mods
+
+
+def test_scripts_shim_reexports_backend_module():
+    import preprocessing as shim
+    from app.services import preprocessing as canonical
+
+    assert shim.preprocess_image is canonical.preprocess_image
+    assert shim.preprocess_batch is canonical.preprocess_batch
+    assert shim.load_image is canonical.load_image
 
 
 def test_matches_torchvision_on_test_images(sample_paths):

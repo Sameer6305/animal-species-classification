@@ -20,3 +20,6 @@ Thumbs.db
 *.log
 # Phase 0 model artifacts (large; hosted externally, see scripts/download_models.sh)
 models/*.onnx
+# Backend (Phase 1)
+backend/.venv/
+.pytest_cache/

@@ -204,6 +204,14 @@ Each phase = one implementation session. Do them in order.
 
 **Accept when:** `pytest` green; `/docs` works; p50 predict < 150 ms on laptop CPU.
 
+**Results (2026-11-14, reviewed — approved)**
+- `backend/` FastAPI app (`app/main.py` factory + lifespan, `config.py` with `WILDLENS_*` env, routers health/models/predict(+explain)/metrics(+figures), services registry/inference/cam/preprocessing/images/metrics). Python 3.11 venv in `backend/.venv` (gitignored); deps pinned in `backend/requirements.txt`, also verified on Python 3.9.6.
+- Preprocessing moved to `backend/app/services/preprocessing.py`; `scripts/preprocessing.py` is now a re-export shim, so Phase-0 scripts/tests are unchanged except the no-torch AST check, which now points at the backend file (+1 test asserting the shim re-exports the same functions).
+- Tests: `cd backend && .venv/bin/python -m pytest` → **51 passed** (3.11 and 3.9); model/dataset-dependent tests skip with a reason if `models/resnet50.onnx` or `data/processed` is missing. `pytest tests/phase0` → 16 passed. API top-10 equals a direct Phase-0 ONNX run (|Δp| < 1e-5); explain grid equals the Phase-0 CAM formula.
+- Latency (Apple M5, warm, 30 requests, intra-op threads = 4): `/api/predict` round-trip **p50 26.8 ms / p95 27.7 ms** on a 224×224 test crop and p50 35.2 / p95 38.8 ms on a 1600×1067 JPEG; `/api/explain` p50 37 ms (224 px) / 98 ms (1600 px, PNG encoding dominates).
+- Low-confidence threshold 0.5 (top-1 prob): on the test split it flags 11.7% of images, which are right only 41% of the time (85.1% for the rest) — see `backend/README.md`.
+- Deviations: 415 for decodable-but-unsupported formats (e.g. GIF); explain renders at upload size with longest side capped at 1024 px and also returns the 7×7 grid; `/api/metrics` adds `raw` file contents with absolute local paths reduced to file names.
+
 ### Phase 2 — Knowledge base & chat
 **Goal:** species data + grounded free chat.
 - `scripts/build_species_kb.py` + `data/species_overrides.json` → `data/species_kb.json` (80 entries, attribution included).
@@ -280,3 +288,5 @@ Each phase = one implementation session. Do them in order.
 | 2026-11-14 | Scope | Laptop/desktop only — mobile layouts dropped. | ✅ |
 | 2026-11-14 | Plan | Plan drafted and agreed: free-only, ResNet50 first, browser inference for deployment. | ✅ |
 | 2026-11-14 | Phase 0 | ONNX FP32 reproduces 0.7992 exactly; parity + CAM tests pass (15); int8 agreement 93.3% → not usable. Reviewer re-ran tests (15 passed), confirmed src/ & outputs/ untouched. Follow-ups: (1) try FP16 export for browser (~47 MB) in Phase 4/7 since FP32 is 94.6 MB; (2) Phase 1 moves `scripts/preprocessing.py` into the backend package (keep tests pointing at it); (3) venv is Py 3.9 — backend Docker image uses 3.11, pin onnxruntime same major. | ✅ approved |
+| 2026-11-14 | Phase 1 | FastAPI backend: 51 backend tests + 16 phase0 tests pass; predict p50 27 ms (M5 CPU); preprocessing moved to backend with scripts shim. Reviewer re-ran both suites (51 + 16 pass), checked figure path-traversal (404), no abs paths in /api/metrics, live predict on a Zebra crop (0.999, 27 ms), bad file → 422; src/outputs/models untouched. Follow-ups: (1) Phase 2 chat router reuses the same app-factory/lifespan + deps pattern; (2) frontend should request `amber` colormap to match the palette; (3) keep 0.5 low-confidence threshold (data in backend/README.md). | ✅ approved |
+| 2026-11-14 | Follow-ups | Phase 0 (2) preprocessing move and (3) version pinning resolved in Phase 1. Carried forward: FP16 browser model → Phase 4/7; chat router pattern → Phase 2; `amber` colormap → Phase 4. | ✅ |
