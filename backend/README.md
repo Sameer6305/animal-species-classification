@@ -7,7 +7,7 @@ grounded Field Guide chat (`/api/chat`, Server-Sent Events).
 
 ## Prerequisites
 
-- **Python 3.9–3.12** (3.11 recommended; the Docker image in Phase 6 will use 3.11). Python 3.13
+- **Python 3.9–3.12** (3.11 recommended; the Docker image uses 3.11). Python 3.13
   is not supported yet: the pinned `onnxruntime==1.19.2` and `numpy==2.0.2` have no 3.13 wheels.
 - Model artifacts in `../models/`: `registry.json`, `classes.json`, `resnet50_fc.npz`
   (committed) and `resnet50.onnx` (gitignored, ~95 MB). Get it with
@@ -27,6 +27,20 @@ python3.11 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/uvicorn app.main:app --reload            # http://127.0.0.1:8000/docs
 ```
+
+Or from the repo root: `make setup && make dev` (backend and frontend together), or
+`docker compose up --build` (see below).
+
+### Docker
+
+`backend/Dockerfile` (context `backend/`): multi-stage `python:3.11-slim`, runtime dependencies only
+(no pytest; onnxruntime's optional sympy/mpmath and pip removed), non-root user `wildlens`
+(uid 10001), healthcheck on `/api/health`, uvicorn with `--proxy-headers` so the chat rate limit sees
+the real client behind nginx. The app lives at `/srv/backend`, so relative paths resolve against
+`/srv`; `docker-compose.yml` bind-mounts `models/`, `outputs/results`, `outputs/figures`,
+`data/species_kb.json` and `data/species_images/` read-only there, runs the container with a
+read-only root filesystem, and loads `backend/.env` if present. Nothing large is baked into the
+image (≈ 97 MB compressed).
 
 Tests:
 
@@ -95,7 +109,7 @@ Phase 2 (chat and knowledge base):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WILDLENS_GROQ_API_KEY` (or `GROQ_API_KEY`) | unset | Enables Groq as the first chat provider. Server-side only. |
+| `WILDLENS_GROQ_API_KEY` (or `GROQ_API_KEY`) | unset | Enables Groq as the first chat provider. Server-side only. Blank values count as unset; a non-empty `WILDLENS_GROQ_API_KEY` wins, else `GROQ_API_KEY` (environment or `backend/.env`). |
 | `WILDLENS_GROQ_MODEL` | `llama-3.3-70b-versatile` | Any Groq chat model id ([list](https://console.groq.com/docs/models)). **`llama-3.1-8b-instant` is the low-quota option**: faster, with much higher free-tier daily token limits than the 70B model; use it if Groq starts answering 429. |
 | `WILDLENS_OLLAMA_URL` | unset (disabled) | e.g. `http://127.0.0.1:11434` to use a local Ollama after Groq. |
 | `WILDLENS_OLLAMA_MODEL` | `llama3.2` | Ollama model name (`ollama pull llama3.2`). |

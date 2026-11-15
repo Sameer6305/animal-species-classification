@@ -140,6 +140,7 @@ export function UploadDropzone({
           accept={accept.join(',')}
           className="sr-only"
           tabIndex={-1}
+          aria-label="Choose a photograph to upload"
           disabled={inactive}
           onChange={(e) => {
             handleFiles(e.target.files)

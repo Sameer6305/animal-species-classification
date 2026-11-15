@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 
-from pydantic import AliasChoices, Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -55,9 +55,15 @@ class Settings(BaseSettings):
     # /api/species-images/... so local mode shows photos offline. Missing dir = empty manifest.
     species_images_dir: Path = Path("data/species_images")
 
-    # Groq (OpenAI-compatible, free tier, no card). Read from WILDLENS_GROQ_API_KEY or GROQ_API_KEY.
+    # Groq (OpenAI-compatible, free tier, no card). Effective key: a non-empty WILDLENS_GROQ_API_KEY,
+    # else a non-empty GROQ_API_KEY (each from the environment or backend/.env). Empty or
+    # whitespace-only values count as unset, so the blank `WILDLENS_GROQ_API_KEY=` line shipped in
+    # backend/.env.example never hides a GROQ_API_KEY.
     groq_api_key: Optional[SecretStr] = Field(
-        None, validation_alias=AliasChoices("WILDLENS_GROQ_API_KEY", "GROQ_API_KEY", "groq_api_key")
+        None, validation_alias=AliasChoices("WILDLENS_GROQ_API_KEY", "groq_api_key")
+    )
+    groq_api_key_fallback: Optional[SecretStr] = Field(
+        None, validation_alias=AliasChoices("GROQ_API_KEY", "groq_api_key_fallback"), repr=False
     )
     # Default chosen from https://console.groq.com/docs/models (checked 2026-11-14): the
     # Llama-family *production* models are llama-3.3-70b-versatile and llama-3.1-8b-instant.
@@ -87,6 +93,20 @@ class Settings(BaseSettings):
     llm_connect_timeout_s: float = Field(5.0, gt=0)
     llm_read_timeout_s: float = Field(20.0, gt=0)
     chat_live_lookup: bool = True  # Wikipedia/Wikidata/iNaturalist lookups for animals outside the KB
+
+    @field_validator("groq_api_key", "groq_api_key_fallback", mode="before")
+    @classmethod
+    def _blank_key_is_unset(cls, v):
+        if v is None:
+            return None
+        raw = v.get_secret_value() if isinstance(v, SecretStr) else str(v)
+        return raw.strip() or None
+
+    @model_validator(mode="after")
+    def _resolve_groq_key(self) -> "Settings":
+        if self.groq_api_key is None and self.groq_api_key_fallback is not None:
+            self.groq_api_key = self.groq_api_key_fallback
+        return self
 
     def resolve(self, p: Path) -> Path:
         return p if p.is_absolute() else (self.repo_root / p)

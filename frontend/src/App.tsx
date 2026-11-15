@@ -5,6 +5,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Spinner } from '@/components/ui/spinner'
 import { HomePage } from '@/pages/HomePage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
+import { RouteErrorPage } from '@/pages/RouteErrorPage'
 
 /* Route-level code splitting: each page is its own chunk; Leaflet and onnxruntime-web are
    further split inside their pages and load only when needed. */
@@ -23,7 +24,9 @@ function Page({ children, label = 'Loading page' }: { children: ReactNode; label
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-[60vh] justify-center py-32">
+        // Full viewport height so the footer starts below the fold and does not jump (CLS)
+        // when the page chunk arrives.
+        <div className="flex min-h-screen justify-center py-32">
           <Spinner label={label} />
         </div>
       }
@@ -33,7 +36,7 @@ function Page({ children, label = 'Loading page' }: { children: ReactNode; label
   )
 }
 
-const children: RouteObject[] = [
+const pages: RouteObject[] = [
   { index: true, element: <HomePage /> },
   {
     path: 'identify',
@@ -98,7 +101,13 @@ const children: RouteObject[] = [
   { path: '*', element: <NotFoundPage /> },
 ]
 
-const router = createBrowserRouter([{ path: '/', element: <AppShell />, children }])
+/* Every page gets its own error boundary, so an error replaces only the page content and the
+   header/footer stay usable; the shell-level one is a last resort. */
+const children: RouteObject[] = pages.map((route) => ({ ...route, errorElement: <RouteErrorPage /> }))
+
+const router = createBrowserRouter([
+  { path: '/', element: <AppShell />, errorElement: <RouteErrorPage />, children },
+])
 
 export function App() {
   return <RouterProvider router={router} />

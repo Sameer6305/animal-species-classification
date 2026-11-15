@@ -42,7 +42,7 @@ export function Reveal({
     <div
       ref={ref}
       className={cn(
-        'transition-[opacity,transform] duration-[900ms] ease-editorial',
+        'transition-[opacity,transform] ease-editorial [transition-duration:900ms]',
         shown ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0',
         className,
       )}

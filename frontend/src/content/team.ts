@@ -1,8 +1,8 @@
 /**
- * Team section on the About page. Empty by default: the section is hidden until entries are
- * added here (see frontend/README.md, "Content"). Only add details people agreed to publish.
+ * Team section on the About page (hidden if this list is empty; see frontend/README.md,
+ * "Content"). Names as provided by the team; only add roles or links people agreed to publish.
  *
- * Example:
+ * Optional fields, e.g.:
  *   { name: 'A. Person', role: 'Model training and evaluation', link: 'https://example.org' }
  */
 export interface TeamMember {
@@ -13,4 +13,9 @@ export interface TeamMember {
   link?: string
 }
 
-export const TEAM: TeamMember[] = []
+export const TEAM: TeamMember[] = [
+  { name: 'Sameer Kadam' },
+  { name: 'Kartikya Gawali' },
+  { name: 'Yash More' },
+  { name: 'Pratik Bhosale' },
+]

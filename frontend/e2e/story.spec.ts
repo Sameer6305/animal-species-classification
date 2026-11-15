@@ -73,7 +73,7 @@ test('research compares four models from /api/metrics and opens a figure', async
   expect(errors).toEqual([])
 })
 
-test('about shows the architecture diagram and no empty team section', async ({ page }) => {
+test('about shows the architecture diagram and the project team', async ({ page }) => {
   const errors = watchErrors(page)
   await page.goto('/about')
   await expect(page).toHaveTitle('About · WildLens')
@@ -81,7 +81,15 @@ test('about shows the architecture diagram and no empty team section', async ({ 
   await expect(svg).toBeVisible()
   await expect(svg.locator('title')).toHaveText('WildLens architecture')
   await expect(page.getByRole('heading', { name: 'Data sources and licences' })).toBeVisible()
-  await expect(page.getByTestId('team-section')).toHaveCount(0)
+  const team = page.getByTestId('team-section')
+  await expect(team).toBeVisible()
+  await expect(team.getByRole('heading', { name: 'Project team' })).toBeVisible()
+  await expect(team.getByRole('listitem')).toHaveText([
+    'Sameer Kadam',
+    'Kartikya Gawali',
+    'Yash More',
+    'Pratik Bhosale',
+  ])
 
   // The skip link is the first stop and moves focus to the main landmark.
   await page.keyboard.press('Tab')

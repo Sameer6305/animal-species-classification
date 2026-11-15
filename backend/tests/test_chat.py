@@ -136,7 +136,7 @@ class Net:
 
 
 def make_settings(**kw) -> Settings:
-    base = dict(_env_file=None, groq_api_key=None, ollama_url=None, chat_rate_limit_per_minute=1000,
+    base = dict(_env_file=None, groq_api_key=None, groq_api_key_fallback=None, ollama_url=None, chat_rate_limit_per_minute=1000,
                 groq_retry_delay_s=0.0)
     base.update(kw)
     return Settings(**base)

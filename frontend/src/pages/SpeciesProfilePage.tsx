@@ -140,9 +140,11 @@ function Profile({ sp }: { sp: SpeciesDetail }) {
             <div>
               <h2 className="type-h3">Where it has been recorded</h2>
               <p className="mt-2 max-w-prose text-small text-fg-muted">
-                Density of occurrence records in the Global Biodiversity Information Facility (GBIF): museum
-                specimens, surveys and citizen-science observations. Records reflect where people look as much
-                as where animals live
+                Density of field observations in the Global Biodiversity Information Facility (GBIF): surveys,
+                camera traps and citizen-science records. Museum specimens and zoo samples are left out, since
+                their coordinates usually mark the collection rather than the animal; captive animals logged
+                as observations cannot be filtered out. Records reflect where people look as much as where
+                animals live
                 {sp.domestic ? ', and for domestic animals mostly where they are kept' : ''}.
               </p>
             </div>

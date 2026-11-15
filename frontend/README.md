@@ -5,13 +5,15 @@ React Router, TanStack Query, lucide-react and Recharts. Phase 3 of `docs/platfo
 design tokens, typography, the layout shell, reusable components and a component preview page.
 Phase 4 adds the core pages: Identify, Species Atlas, species profiles and the Field Guide chat.
 Phase 5 adds the story pages: the Home narrative, Research (from `/api/metrics` and `/api/figures`)
-and About.
+and About. Phase 6 adds the production Docker image (nginx), error boundaries and site icons.
 
 Laptop and desktop only (designed for 1280 px and wider). Below 1024 px a notice replaces the app.
 
 ## Run
 
 Requires Node 22+ and npm (`nvm use` picks it up from `.nvmrc`). Node 20 fails to start the Vitest workers.
+From the repo root, `make setup && make dev` installs everything and starts backend and frontend
+together; the manual steps are:
 
 ```bash
 cd frontend
@@ -135,21 +137,34 @@ Model colours (`--model-1…4`: ResNet50, EfficientNetV2-S, ConvNeXt-Tiny, Swin-
 
 ### Team section
 
-The About page has a Team section that is **hidden while `src/content/team.ts` is empty** (the
-default). To show it, add entries:
-
-```ts
-export const TEAM: TeamMember[] = [
-  { name: 'A. Person', role: 'Model training and evaluation', link: 'https://example.org' },
-]
-```
-
-`role` and `link` are optional; links must be `http(s)`. Only add details people agreed to publish.
+The About page's "Project team" list comes from `src/content/team.ts` (names only, as provided by the
+team; the section hides itself if the list is empty). `role` and `link` are optional fields; links
+must be `http(s)`. Only add details people agreed to publish.
 
 ### Page titles
 
 Each route sets `document.title` ("Research · WildLens") and the meta description with
 `usePageMeta()` from `src/lib/page-meta.ts`.
+
+## Production build, Docker and site assets (Phase 6)
+
+- `frontend/Dockerfile` builds with Node 22 and serves `dist/` with nginx (`nginx/default.conf`):
+  SPA fallback, gzip, one-year immutable caching for hashed `/assets/*`, `no-cache` for
+  `index.html`, `/api` (unbuffered, for the chat stream) and `/docs` proxied to the backend service,
+  and `/models/*.onnx` served read-only from the mounted `models/` directory so a
+  `VITE_INFERENCE_MODE=browser` image works too. The build context is the repository root (the
+  build imports `models/*.json`); the root `.dockerignore` is an allow-list that never sends ONNX
+  weights. Run it with `docker compose up --build` from the root (see the root README).
+- Every route has a React Router error boundary (`src/pages/RouteErrorPage.tsx`): a crash in one
+  page replaces only the page content, with Reload and Go home; a missing lazy chunk after a rebuild
+  gets its own explanation. Unknown paths render `NotFoundPage`.
+- Icons and social card: `public/favicon.svg` (the mark), `favicon-32.png`, `apple-touch-icon.png`,
+  `icon-192.png`, `icon-512.png`, `site.webmanifest`, `og-image.jpg` (1200×630, typographic with the
+  CC0 red panda credited in the image) and `robots.txt`. Regenerate the PNG/JPG files with
+  `node scripts/make_icons.mjs`. The `og:image` URL is relative until the site has a public origin
+  (Phase 7).
+- Lazy route fallbacks are full viewport height so the footer never jumps into view while a page
+  chunk loads (layout shift).
 
 ## Tests
 
@@ -158,14 +173,15 @@ Each route sets `document.title` ("Research · WildLens") and the meta descripti
   filtering/sorting, chat context handoff and session, plus the Phase 3 component tests. Phase 5:
   `research.test.ts` (metrics → table rows, best value per column, derived and blank cells, curves,
   per-class sorting, figure captions; fixture `src/fixtures/metrics.json` is a trimmed
-  `/api/metrics` response), `TeamSection.test.tsx` (hidden when empty), `page-meta.test.tsx`.
+  `/api/metrics` response), `TeamSection.test.tsx` (four names, hidden when empty), `page-meta.test.tsx`; Phase 6:
+  `RouteErrorPage.test.tsx` (error boundary with Reload / Go home).
 - `npm run e2e` (Playwright, real servers): identify a sample → top-1 and heatmap → profile with map
   → Field Guide retrieval-only answer with citations; atlas search/filter; group profile; and the
   parity test — 20 images (12 samples + 8 crops from `data/processed/test`, local only) through
   server and browser (WASM) mode for FP32 and FP16, asserting identical top-5 labels. The parity
   report is written to `test-results/parity.json`. `e2e/story.spec.ts` (Phase 5): Home renders every
   section and its CTAs navigate; Research shows the four models (ResNet50 0.7992) and opens a figure
-  in the lightbox; About has the architecture SVG, no empty team section and a working skip link;
+  in the lightbox; About has the architecture SVG, the four-name project team and a working skip link;
   no console errors on any of the three.
 
 ## Code splitting

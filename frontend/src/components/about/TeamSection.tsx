@@ -2,13 +2,13 @@ import { Section, SectionHeader } from '@/components/Section'
 import type { TeamMember } from '@/content/team'
 import { safeHttpUrl } from '@/lib/url'
 
-/** About-page team list; renders nothing while `src/content/team.ts` is empty. */
+/** About-page "Project team" list; renders nothing if `src/content/team.ts` is empty. */
 export function TeamSection({ members }: { members: TeamMember[] }) {
   if (members.length === 0) return null
   return (
     <Section spacing="compact" aria-labelledby="team-title" data-testid="team-section">
-      <SectionHeader id="team-title" size="md" title="Team" />
-      <ul className="grid grid-cols-3 gap-x-12 gap-y-6">
+      <SectionHeader id="team-title" size="md" title="Project team" />
+      <ul className="grid grid-cols-4 gap-x-10 gap-y-6">
         {members.map((m) => {
           const href = safeHttpUrl(m.link)
           return (
