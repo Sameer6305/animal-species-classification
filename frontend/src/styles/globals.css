@@ -77,6 +77,12 @@
     --chart-3: 138 143 135; /* stone */
     --chart-4: 120 150 128; /* sage */
     --chart-grid: 217 211 198;
+    /* Per-model categorical colours (fixed order: ResNet50, EfficientNetV2-S, ConvNeXt-Tiny,
+       Swin-Tiny), validated for CVD separation and 3:1 against the surface in each theme. */
+    --model-1: 175 122 26; /* #AF7A1A */
+    --model-2: 58 111 192; /* #3A6FC0 */
+    --model-3: 43 127 86; /* #2B7F56 */
+    --model-4: 154 79 142; /* #9A4F8E */
 
     --shadow: 15 31 23;
     --scan: 200 145 58;
@@ -144,6 +150,10 @@
     --chart-3: 110 120 112;
     --chart-4: 127 176 138;
     --chart-grid: 42 61 50;
+    --model-1: 190 136 40; /* #BE8828 */
+    --model-2: 107 143 216; /* #6B8FD8 */
+    --model-3: 61 152 104; /* #3D9868 */
+    --model-4: 185 119 173; /* #B977AD */
 
     --shadow: 0 0 0;
     --scan: 226 180 103;
@@ -202,6 +212,10 @@
       --chart-3: 110 120 112;
       --chart-4: 127 176 138;
       --chart-grid: 42 61 50;
+      --model-1: 190 136 40;
+      --model-2: 107 143 216;
+      --model-3: 61 152 104;
+      --model-4: 185 119 173;
       --shadow: 0 0 0;
       --scan: 226 180 103;
     }

@@ -23,6 +23,7 @@ import {
 } from '@/lib/atlas'
 import { IUCN_CODES, IUCN_LABELS } from '@/lib/iucn'
 import { speciesPhotoUrl, useSpeciesImages, useSpeciesList } from '@/lib/species'
+import { usePageMeta } from '@/lib/page-meta'
 
 const GROUPS = [
   'Mammal',
@@ -50,6 +51,10 @@ const GROUP_PLURAL: Record<string, string> = {
 }
 
 export default function AtlasPage() {
+  usePageMeta(
+    'Species Atlas',
+    'All 80 animal classes WildLens knows, with conservation status, occurrence maps and per-class model accuracy.',
+  )
   const [params, setParams] = useSearchParams()
   const filters = parseFilters(params)
   const { data, isPending, isError, error, refetch } = useSpeciesList()

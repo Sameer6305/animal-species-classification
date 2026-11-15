@@ -18,6 +18,7 @@ import { browserModelInfo, INFERENCE_MODE, prepareInference, type LoadProgress }
 import samplesData from '@/lib/samples.json'
 import { useSpeciesList } from '@/lib/species'
 import { cn } from '@/lib/utils'
+import { usePageMeta } from '@/lib/page-meta'
 
 interface Sample {
   slug: string
@@ -38,6 +39,10 @@ interface Sample {
 const SAMPLES = samplesData.samples as Sample[]
 
 export default function IdentifyPage() {
+  usePageMeta(
+    'Identify',
+    'Upload a photograph to identify the animal: top-five predictions, confidence and a heatmap of where the model looked.',
+  )
   const state = identifyStore.use()
   const busy = state.status === 'loading'
 

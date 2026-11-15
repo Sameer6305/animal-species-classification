@@ -3,10 +3,7 @@ import { Link } from 'react-router-dom'
 import { Container } from '@/components/layout/Container'
 import { NAV_ITEMS } from '@/components/layout/nav'
 import { Wordmark } from '@/components/layout/Wordmark'
-
-const REPO_URL =
-  (import.meta.env.VITE_REPO_URL as string | undefined) ??
-  'https://github.com/Sameer6305/animal-species-classification'
+import { REPO_URL } from '@/lib/site'
 
 const SOURCES = [
   {

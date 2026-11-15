@@ -51,6 +51,12 @@ export default {
           4: token('chart-4'),
           grid: token('chart-grid'),
         },
+        model: {
+          1: token('model-1'),
+          2: token('model-2'),
+          3: token('model-3'),
+          4: token('model-4'),
+        },
         stone: token('stone'),
       },
       fontFamily: {

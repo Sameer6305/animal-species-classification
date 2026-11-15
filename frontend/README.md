@@ -4,7 +4,8 @@ React 18 + Vite + TypeScript (strict) + Tailwind CSS v3 + shadcn/ui (Radix), wit
 React Router, TanStack Query, lucide-react and Recharts. Phase 3 of `docs/platform/PLAN.md`:
 design tokens, typography, the layout shell, reusable components and a component preview page.
 Phase 4 adds the core pages: Identify, Species Atlas, species profiles and the Field Guide chat.
-Research and About (Phase 5) still show placeholders.
+Phase 5 adds the story pages: the Home narrative, Research (from `/api/metrics` and `/api/figures`)
+and About.
 
 Laptop and desktop only (designed for 1280 px and wider). Below 1024 px a notice replaces the app.
 
@@ -102,7 +103,7 @@ with credits in `src/lib/samples.json`) is bundled and works offline.
 | `npm run lint` / `npm run typecheck` | ESLint (flat config) / `tsc -b`                                                                                                                                                                                                 |
 | `npm test`                           | Vitest + Testing Library (jsdom)                                                                                                                                                                                                |
 | `npm run format`                     | Prettier                                                                                                                                                                                                                        |
-| `npm run e2e`                        | Playwright E2E (`e2e/`): core flows and the browser/server parity test. Starts the backend (:8000) and Vite (:5173) itself unless they are already running; needs `models/resnet50.onnx`                                        |
+| `npm run e2e`                        | Playwright E2E (`e2e/`): core flows, story pages and the browser/server parity test. Starts the backend (:8000) and Vite (:5173) itself unless they are already running; needs `models/resnet50.onnx`                           |
 | `npm run screenshots -- <outDir>`    | Playwright screenshots of every page and key states (identify result, low confidence, chat) at 1280×800 and 1920×1080, light and dark (needs `npm run dev` and the backend running, and `npx playwright install chromium` once) |
 
 The `/__ui` preview is included only in development (`import.meta.env.DEV`); set
@@ -114,22 +115,66 @@ thumbnails; the heatmap demo photo (`src/fixtures/red-panda.jpg`, CC0) is bundle
 low-confidence screenshot input (`scripts/fixtures/low-confidence.jpg`) is a crop of the CC0
 ladybird photo used by the knowledge base (Commons: `Coccinella-septempunctata-15-fws.jpg`).
 
+## Content (Phase 5)
+
+Every number on Home, Research and About comes from a project file; nothing is typed in by hand
+without a source.
+
+| Where                                                                                                         | Source                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Research: comparison table, dot plot, training curves, per-class table                                        | live `GET /api/metrics` (`outputs/results/*`), shaped by `src/lib/research.ts`. ConvNeXt-Tiny's macro precision/recall/F1 are the mean of its per-class report, and ResNet50/ConvNeXt-Tiny inference time is test-evaluation time ÷ test crops, both as in `docs/model_comparison.md`; those cells are marked † on the page. Blank cells (ConvNeXt-Tiny AUC) are explained under the table. |
+| Research: figures gallery                                                                                     | live `GET /api/figures`; captions by file-name pattern in `describeFigure()`                                                                                                                                                                                                                                                                                                                |
+| Home and Research narrative numbers (dataset, pipeline, deployment, latency, low-confidence threshold, paper) | `src/content/study.ts`, each block commented with its source (`docs/dataset_notes.md`, `docs/paper_info_table.md`, `docs/model_comparison.md`, `models/resnet50_onnx_eval.json`, `backend/README.md`, `docs/platform/PLAN.md` results)                                                                                                                                                      |
+| Home class-distribution chart                                                                                 | `src/content/class-distribution.json`, generated from `data/manifest.csv` by `node scripts/make_class_distribution.mjs` (rerun if the manifest changes)                                                                                                                                                                                                                                     |
+| Home "how to read a result" example                                                                           | `src/fixtures/explain-red-panda.json`, a captured `/api/explain` response (lazy-loaded)                                                                                                                                                                                                                                                                                                     |
+| About: data sources and licences                                                                              | summary of `data/LICENSE-DATA.md`                                                                                                                                                                                                                                                                                                                                                           |
+
+Model colours (`--model-1…4`: ResNet50, EfficientNetV2-S, ConvNeXt-Tiny, Swin-Tiny) are fixed by
+`MODEL_ORDER` in `src/content/study.ts` and were checked for colour-vision-deficiency separation and
+3:1 contrast against the surface in both themes.
+
+### Team section
+
+The About page has a Team section that is **hidden while `src/content/team.ts` is empty** (the
+default). To show it, add entries:
+
+```ts
+export const TEAM: TeamMember[] = [
+  { name: 'A. Person', role: 'Model training and evaluation', link: 'https://example.org' },
+]
+```
+
+`role` and `link` are optional; links must be `http(s)`. Only add details people agreed to publish.
+
+### Page titles
+
+Each route sets `document.title` ("Research · WildLens") and the meta description with
+`usePageMeta()` from `src/lib/page-meta.ts`.
+
 ## Tests
 
 - `npm test` (Vitest): inference maths against a fixture generated by the backend's own Python
   (`scripts/make_inference_fixture.py`: Pillow resize, preprocessing, softmax/top-k, CAM), atlas
-  filtering/sorting, chat context handoff and session, plus the Phase 3 component tests.
+  filtering/sorting, chat context handoff and session, plus the Phase 3 component tests. Phase 5:
+  `research.test.ts` (metrics → table rows, best value per column, derived and blank cells, curves,
+  per-class sorting, figure captions; fixture `src/fixtures/metrics.json` is a trimmed
+  `/api/metrics` response), `TeamSection.test.tsx` (hidden when empty), `page-meta.test.tsx`.
 - `npm run e2e` (Playwright, real servers): identify a sample → top-1 and heatmap → profile with map
   → Field Guide retrieval-only answer with citations; atlas search/filter; group profile; and the
   parity test — 20 images (12 samples + 8 crops from `data/processed/test`, local only) through
   server and browser (WASM) mode for FP32 and FP16, asserting identical top-5 labels. The parity
-  report is written to `test-results/parity.json`.
+  report is written to `test-results/parity.json`. `e2e/story.spec.ts` (Phase 5): Home renders every
+  section and its CTAs navigate; Research shows the four models (ResNet50 0.7992) and opens a figure
+  in the lightbox; About has the architecture SVG, no empty team section and a working skip link;
+  no console errors on any of the three.
 
 ## Code splitting
 
-Each route is a `React.lazy` chunk. Leaflet (+ CSS) is imported only by `OccurrenceMap`, itself
-lazy-loaded on profile pages; onnxruntime-web is imported only by `lib/inference/browser.ts`,
-loaded only in browser mode.
+Each route except Home is a `React.lazy` chunk; Home uses no animation library (IntersectionObserver
+
+- CSS transitions) and lazy-loads its example result. Recharts loads only with the Research page. Leaflet (+ CSS) is imported only by `OccurrenceMap`, itself
+  lazy-loaded on profile pages; onnxruntime-web is imported only by `lib/inference/browser.ts`,
+  loaded only in browser mode.
 
 ## Layout
 
@@ -141,15 +186,20 @@ src/
                                images.ts (Commons thumbnails), heatmap.ts (CAM colouriser), upload.ts,
                                inference/ (adapter: server.ts, browser.ts, math.ts, model-cache.ts),
                                species.ts (queries + local photos), atlas.ts, identify.ts,
-                               chat-session.ts, handoff.ts, store.ts, samples.json
+                               chat-session.ts, handoff.ts, store.ts, samples.json,
+                               research.ts (metrics shaping), page-meta.ts, motion.ts, site.ts (repo URL)
   components/ui/               shadcn/ui primitives themed to the tokens
   components/layout/           AppShell, SiteHeader, SiteFooter, Container, Wordmark, ThemeToggle,
                                ScreenSizeNotice
   components/                  Section, StatTile, SpeciesCard, IucnBadge, IucnScale, ConfidenceBar,
                                PredictionList, HeatmapViewer, UploadDropzone, Attribution,
                                ScientificName, States (EmptyState/ErrorState), charts/, chat/
+  components/home|research|about/  Phase 5 page sections (Reveal, ClassDistribution, PipelineSteps,
+                               ResultExample, ComparisonTable, PerClassView, FigureGallery,
+                               ArchitectureDiagram, TeamSection); charts/ MetricDotPlot, TrainingCurves
+  content/                     study.ts (sourced copy numbers), team.ts, class-distribution.json
   pages/                       HomePage, IdentifyPage, AtlasPage, SpeciesProfilePage, AskPage,
-                               PlaceholderPage (+ routes.tsx content), NotFoundPage, dev/UiPreview.tsx
+                               ResearchPage, AboutPage, NotFoundPage, dev/UiPreview.tsx
 e2e/                           Playwright specs (core flows, parity)
   fixtures/                    small copies of data/species_kb.json, one /api/explain response
                                (amber colormap, overlay omitted), a metrics summary

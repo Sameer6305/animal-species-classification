@@ -21,6 +21,7 @@ import {
 import { parseHandoff, suggestedQuestion } from '@/lib/handoff'
 import { speciesPhotoUrl, useSpeciesImages, useSpeciesList } from '@/lib/species'
 import { createStore } from '@/lib/store'
+import { usePageMeta } from '@/lib/page-meta'
 
 /** Handoffs already applied this session, so returning to /ask does not re-fill the composer. */
 const applied = new Set<string>()
@@ -28,6 +29,10 @@ const applied = new Set<string>()
 const prefillStore = createStore<{ key: string; text: string }>({ key: 'empty', text: '' })
 
 export default function AskPage() {
+  usePageMeta(
+    'Field Guide',
+    'Ask about any animal. Answers are grounded in Wikipedia, Wikidata and iNaturalist and cite their sources.',
+  )
   const { messages, context, busy } = chatStore.use()
   const location = useLocation()
   const prefill = prefillStore.use()

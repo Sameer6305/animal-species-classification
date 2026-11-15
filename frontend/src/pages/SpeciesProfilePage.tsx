@@ -26,6 +26,7 @@ import { askLink } from '@/lib/handoff'
 import { commonsThumb } from '@/lib/images'
 import { isIucnCode } from '@/lib/iucn'
 import { speciesPhotoUrl, useSpeciesDetail, useSpeciesImages, useSpeciesList } from '@/lib/species'
+import { usePageMeta } from '@/lib/page-meta'
 
 const OccurrenceMap = lazy(() => import('@/components/OccurrenceMap'))
 
@@ -34,6 +35,12 @@ const TAXON_RANKS = ['phylum', 'class', 'order', 'family', 'genus'] as const
 export default function SpeciesProfilePage() {
   const { slug } = useParams()
   const { data: sp, isPending, isError, error, refetch } = useSpeciesDetail(slug)
+  usePageMeta(
+    sp?.common_name ?? (isError ? 'Species not found' : 'Species'),
+    sp
+      ? `${sp.common_name}${sp.scientific_name ? ` (${sp.scientific_name})` : ''}: summary, conservation status, occurrence map and model accuracy.`
+      : undefined,
+  )
 
   if (isPending) return <ProfileSkeleton />
   if (isError) {

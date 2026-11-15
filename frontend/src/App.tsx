@@ -5,8 +5,6 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Spinner } from '@/components/ui/spinner'
 import { HomePage } from '@/pages/HomePage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
-import { PlaceholderPage } from '@/pages/PlaceholderPage'
-import { PLACEHOLDERS } from '@/pages/routes'
 
 /* Route-level code splitting: each page is its own chunk; Leaflet and onnxruntime-web are
    further split inside their pages and load only when needed. */
@@ -14,12 +12,12 @@ const IdentifyPage = lazy(() => import('@/pages/IdentifyPage'))
 const AtlasPage = lazy(() => import('@/pages/AtlasPage'))
 const SpeciesProfilePage = lazy(() => import('@/pages/SpeciesProfilePage'))
 const AskPage = lazy(() => import('@/pages/AskPage'))
+const ResearchPage = lazy(() => import('@/pages/ResearchPage'))
+const AboutPage = lazy(() => import('@/pages/AboutPage'))
 
 /** Dev-only component preview; the import is dropped from production bundles. */
 const SHOW_UI_PREVIEW = import.meta.env.DEV || import.meta.env.VITE_UI_PREVIEW === 'true'
 const UiPreview = SHOW_UI_PREVIEW ? lazy(() => import('@/pages/dev/UiPreview')) : null
-
-const p = PLACEHOLDERS
 
 function Page({ children, label = 'Loading page' }: { children: ReactNode; label?: string }) {
   return (
@@ -69,8 +67,22 @@ const children: RouteObject[] = [
       </Page>
     ),
   },
-  { path: 'research', element: <PlaceholderPage {...p.research!} /> },
-  { path: 'about', element: <PlaceholderPage {...p.about!} /> },
+  {
+    path: 'research',
+    element: (
+      <Page>
+        <ResearchPage />
+      </Page>
+    ),
+  },
+  {
+    path: 'about',
+    element: (
+      <Page>
+        <AboutPage />
+      </Page>
+    ),
+  },
   ...(UiPreview
     ? [
         {

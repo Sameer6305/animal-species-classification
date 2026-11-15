@@ -54,6 +54,8 @@ const pages = [
       await page.waitForTimeout(500)
     },
   ],
+  ['research', '/research'],
+  ['about', '/about'],
   ['ui', '/__ui'],
   ['not-found', '/does-not-exist'],
 ].filter(([name]) => !only.length || only.includes(name))

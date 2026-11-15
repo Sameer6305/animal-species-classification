@@ -2,8 +2,10 @@ import { Link } from 'react-router-dom'
 
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
+import { usePageMeta } from '@/lib/page-meta'
 
 export function NotFoundPage() {
+  usePageMeta('Page not found')
   return (
     <Section className="py-32">
       <p className="type-mono mb-6">Error 404</p>
