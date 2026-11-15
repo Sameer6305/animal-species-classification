@@ -30,7 +30,11 @@ interface SpeciesCardProps {
   species: SpeciesCardData
   /** Preferred photo URL (e.g. the local offline copy); falls back to the Commons thumbnail on error. */
   imageSrc?: string | null
-  /** Wrap the card in a link, e.g. `(children) => <Link to={...}>{children}</Link>`. */
+  /**
+   * Make the card a link, e.g. `(children) => <Link to={...}>{children}</Link>`. Only the title is
+   * wrapped; a stretched `::after` overlay makes the whole card clickable, so the photo credit can
+   * stay a separate link without nesting `<a>` elements.
+   */
   renderLink?: (children: ReactNode) => ReactNode
   className?: string
 }
@@ -61,11 +65,6 @@ export function SpeciesCard({ species, imageSrc, renderLink, className }: Specie
             <span className="sr-only">Image unavailable</span>
           </div>
         )}
-        {species.image && src && !failed && (
-          <div className="absolute inset-x-0 bottom-0 translate-y-1 bg-[rgb(10_20_15/0.72)] px-3 py-2 opacity-0 transition duration-300 group-focus-within:translate-y-0 group-focus-within:opacity-100 group-hover:translate-y-0 group-hover:opacity-100">
-            <Attribution image={species.image} variant="overlay" className="truncate" />
-          </div>
-        )}
       </div>
       <div className="flex flex-1 flex-col p-5">
         <div className="mb-3 flex items-center justify-between font-mono text-[0.6875rem] uppercase tracking-[0.12em] text-fg-muted">
@@ -77,7 +76,16 @@ export function SpeciesCard({ species, imageSrc, renderLink, className }: Specie
             <span className="tabular">No. {String(species.number).padStart(3, '0')}</span>
           )}
         </div>
-        <h3 className="font-serif text-h4 font-[450] leading-snug text-fg">{species.common_name}</h3>
+        <h3
+          className={cn(
+            'font-serif text-h4 font-[450] leading-snug text-fg',
+            // Stretched link: the title link's ::after covers the whole (relative) card.
+            renderLink &&
+              "[&_a:focus-visible]:outline-none [&_a]:after:absolute [&_a]:after:inset-0 [&_a]:after:content-['']",
+          )}
+        >
+          {renderLink ? renderLink(species.common_name) : species.common_name}
+        </h3>
         <ScientificName
           name={species.scientific_name}
           rank={species.rank}
@@ -92,21 +100,31 @@ export function SpeciesCard({ species, imageSrc, renderLink, className }: Specie
           </div>
         </div>
       </div>
+      {species.image && src && !failed && (
+        // Photo credit, laid over the bottom of the photo. It comes after the title in the DOM so
+        // the tab order is title link, then credit links; z-10 keeps it above the title link's
+        // stretched overlay, and it only takes pointer events while visible.
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 aspect-[4/3] overflow-hidden">
+          <div className="absolute inset-x-0 bottom-0 translate-y-1 bg-[rgb(10_20_15/0.72)] px-3 py-2 opacity-0 transition duration-300 group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
+            <Attribution image={species.image} variant="overlay" className="truncate" />
+          </div>
+        </div>
+      )}
     </>
   )
 
   const shell = cn(
-    'group flex h-full flex-col overflow-hidden rounded border border-border bg-surface transition-[border-color,box-shadow] duration-300 hover:border-border-strong hover:shadow-raised',
+    'group relative flex h-full flex-col overflow-hidden rounded border border-border bg-surface transition-[border-color,box-shadow] duration-300 hover:border-border-strong hover:shadow-raised',
     className,
   )
   return renderLink ? (
     <div
       className={cn(
         shell,
-        'focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring [&_a:focus-visible]:outline-none',
+        'focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring',
       )}
     >
-      {renderLink(<span className="flex h-full flex-col">{body}</span>)}
+      {body}
     </div>
   ) : (
     <div className={shell}>{body}</div>

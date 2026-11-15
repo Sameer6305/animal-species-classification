@@ -101,6 +101,9 @@ def test_explain_returns_pngs_of_image_size(client, test_image_path, phase0_sess
     # defaults to the top-1 class; label consistent with predictions
     assert j["class_index"] == j["predicted"]["index"] == j["predictions"][0]["index"]
     assert j["label"] == j["predicted"]["label"]
+    # carries everything the frontend needs from a single call (no separate /api/predict)
+    assert len(j["predictions"]) == 5 and j["inference_ms"] > 0
+    assert j["low_confidence"] == (j["predictions"][0]["probability"] < j["low_confidence_threshold"])
     # grid equals the Phase-0 CAM formula on the reference features
     _, feats = _phase0_reference(phase0_session, test_image_path)
     fc = np.load(client.app.state.manager.registry.get("resnet50").fc_npz_path)

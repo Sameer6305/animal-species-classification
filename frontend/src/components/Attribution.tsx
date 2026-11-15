@@ -1,4 +1,5 @@
 import type { SpeciesImage } from '@/lib/api'
+import { safeHttpUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
 
 export type AttributionImage = Pick<
@@ -10,16 +11,21 @@ interface AttributionProps {
   image: AttributionImage
   /** `caption` sits under a photo; `overlay` is light text for use on a dark scrim. */
   variant?: 'caption' | 'overlay'
+  /** Adds "resized" for local copies that were scaled down from the Commons original. */
+  resized?: boolean
   className?: string
 }
 
 /** Image credit: author, licence (linked) and source (linked). Required for Commons imagery. */
-export function Attribution({ image, variant = 'caption', className }: AttributionProps) {
+export function Attribution({ image, variant = 'caption', resized = false, className }: AttributionProps) {
   const linkCls =
     variant === 'overlay'
       ? 'underline decoration-white/40 underline-offset-2 hover:decoration-white'
       : 'underline decoration-border-strong underline-offset-2 hover:text-fg hover:decoration-accent'
   const author = image.artist?.trim() || 'Unknown author'
+  // Links only for http(s) URLs; anything else is rendered as plain text.
+  const sourceUrl = safeHttpUrl(image.source_url)
+  const licenseUrl = safeHttpUrl(image.license_url)
   return (
     <p
       className={cn(
@@ -29,8 +35,8 @@ export function Attribution({ image, variant = 'caption', className }: Attributi
       )}
     >
       <span className="sr-only">Image credit: </span>
-      {image.source_url ? (
-        <a href={image.source_url} target="_blank" rel="noreferrer" className={linkCls}>
+      {sourceUrl ? (
+        <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className={linkCls}>
           {author}
         </a>
       ) : (
@@ -39,8 +45,8 @@ export function Attribution({ image, variant = 'caption', className }: Attributi
       {image.license && (
         <>
           <span aria-hidden="true"> · </span>
-          {image.license_url ? (
-            <a href={image.license_url} target="_blank" rel="noreferrer license" className={linkCls}>
+          {licenseUrl ? (
+            <a href={licenseUrl} target="_blank" rel="noopener noreferrer license" className={linkCls}>
               {image.license}
             </a>
           ) : (
@@ -52,6 +58,12 @@ export function Attribution({ image, variant = 'caption', className }: Attributi
         <>
           <span aria-hidden="true"> · </span>
           {image.provider}
+        </>
+      )}
+      {resized && (
+        <>
+          <span aria-hidden="true"> · </span>
+          resized
         </>
       )}
     </p>

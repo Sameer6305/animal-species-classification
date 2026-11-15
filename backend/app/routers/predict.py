@@ -155,6 +155,7 @@ def explain(
         predicted=preds[0],
         predictions=preds,
         low_confidence=preds[0].probability < settings.low_confidence_threshold,
+        low_confidence_threshold=settings.low_confidence_threshold,
         method="CAM (== Grad-CAM for this GAP->Linear head), layer4",
         colormap=colormap,
         width=size[0],

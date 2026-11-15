@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -80,7 +81,10 @@ class ChatService:
             log.warning("retrieval failed: %s", type(exc).__name__)
             grounding = Grounding(retrieval="unavailable")
 
-        llm_messages = build_messages(messages, grounding)
+        llm_messages = build_messages(
+            trim_history(messages, self.settings.chat_history_messages, self.settings.chat_max_assistant_chars),
+            grounding,
+        )
         skipped: List[Dict[str, str]] = []
         providers = self.llm_providers()
         if not providers:
@@ -143,6 +147,34 @@ class ChatService:
             "sources": [s.public() for s in g.sources],
             "skipped": skipped,
         }
+
+
+_INLINE_SOURCES_RE = re.compile(r"\n*\*\*Sources\*\*\n[\s\S]*?(?=\n\n_Retrieval-only answer|\Z)")
+
+
+def clip_answer(text: str, max_chars: int) -> str:
+    """An earlier assistant answer as LLM history: drop the inline "**Sources**" list of
+    retrieval-only answers (the sources are re-sent each turn), then keep at most ``max_chars``
+    characters from the start, cut at a word boundary."""
+    text = _INLINE_SOURCES_RE.sub("", text).strip()
+    if len(text) <= max_chars:
+        return text
+    cut = text[: max_chars - 2]
+    if " " in cut[-80:]:
+        cut = cut[: cut.rindex(" ")]
+    return cut.rstrip() + " …"
+
+
+def trim_history(messages: List[Dict[str, str]], max_messages: int, max_assistant_chars: int) -> List[Dict[str, str]]:
+    """Last ``max_messages`` turns (starting with a user turn), assistant turns clipped."""
+    recent = messages[-max_messages:]
+    while len(recent) > 1 and recent[0]["role"] != "user":
+        recent = recent[1:]
+    return [
+        {"role": m["role"], "content": clip_answer(m["content"], max_assistant_chars)}
+        if m["role"] == "assistant" else m
+        for m in recent
+    ]
 
 
 async def _aclose(gen: Any) -> None:

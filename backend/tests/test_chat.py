@@ -440,3 +440,186 @@ def test_oversized_body_413():
     with chat_client(Net(), chat_max_body_kb=4) as c:
         r = c.post("/api/chat", json={"messages": [{"role": "user", "content": "a" * 1990}] * 3})
     assert r.status_code == 413
+
+
+# ---------------------------------------------------------------- pre-Phase-5 review fixes
+# Extra live-lookup fixtures: compound names that contain a KB alias.
+WIKI_PAGES.update({
+    "axolotls": WIKI_PAGES["axolotl"],
+    "snow leopard": [{"title": "Snow leopard", "index": 1, "fullurl": "https://en.wikipedia.org/wiki/Snow_leopard",
+                      "pageprops": {"wikibase_item": "Q30197"},
+                      "extract": "The snow leopard (Panthera uncia) is a species of large cat in the genus Panthera. "
+                                 "It inhabits alpine and subalpine zones in the mountain ranges of Central and South Asia."}],
+    "arctic fox": [{"title": "Arctic fox", "index": 1, "fullurl": "https://en.wikipedia.org/wiki/Arctic_fox",
+                    "pageprops": {"wikibase_item": "Q25332"},
+                    "extract": "The Arctic fox (Vulpes lagopus) is a small fox native to the Arctic regions."}],
+    "killer whale": [{"title": "Orca", "index": 1, "fullurl": "https://en.wikipedia.org/wiki/Orca",
+                      "pageprops": {"wikibase_item": "Q26843"},
+                      "extract": "The orca (Orcinus orca), or killer whale, is a toothed whale. It is the largest "
+                                 "member of the oceanic dolphin family."}],
+    # A noun phrase that Wikipedia does not confirm -> keep the KB animal.
+    "spotted leopard": [{"title": "Leopard", "index": 1, "fullurl": "https://en.wikipedia.org/wiki/Leopard",
+                         "pageprops": {"wikibase_item": "Q34706"}, "extract": "The leopard is a large cat."}],
+})
+WIKIDATA.update({
+    "Q30197": {"P225": "Panthera uncia", "P141": "Q278113"},
+    "Q25332": {"P225": "Vulpes lagopus", "P141": "Q211005"},
+    "Q26843": {"P225": "Orcinus orca", "P141": "Q3245245"},
+    "Q34706": {"P225": "Panthera pardus", "P141": "Q278113"},
+})
+INAT.update({
+    "Panthera uncia": {"id": 41970, "name": "Panthera uncia", "rank": "species", "preferred_common_name": "Snow Leopard",
+                       "observations_count": 400, "iconic_taxon_name": "Mammalia"},
+    "Vulpes lagopus": {"id": 42051, "name": "Vulpes lagopus", "rank": "species", "preferred_common_name": "Arctic Fox",
+                       "observations_count": 9000, "iconic_taxon_name": "Mammalia"},
+    "Orcinus orca": {"id": 41521, "name": "Orcinus orca", "rank": "species", "preferred_common_name": "Orca",
+                     "observations_count": 20000, "iconic_taxon_name": "Mammalia"},
+    "Panthera pardus": {"id": 41963, "name": "Panthera pardus", "rank": "species", "preferred_common_name": "Leopard",
+                        "observations_count": 30000, "iconic_taxon_name": "Mammalia"},
+})
+
+SEA_LION_Q = "What is the difference between a sea lion and a harbor seal?"
+
+
+def searches(net: Net) -> List[str]:
+    return [c.url.params["gsrsearch"] for c in net.calls if c.url.host == "en.wikipedia.org"]
+
+
+def test_long_fallback_answer_then_followup_is_accepted():
+    """H1: a >2000-char retrieval-only answer must not make the next request fail with 422."""
+    net = Net()
+    with chat_client(net) as c:
+        events, _ = ask(c, SEA_LION_Q)
+        long_answer = answer(events)
+        assert len(long_answer) > 2000  # the answer that used to break the conversation
+        hist = [{"role": "user", "content": SEA_LION_Q}, {"role": "assistant", "content": long_answer}]
+        events, _ = ask(c, "Which one is bigger?", history=hist)
+    assert_sequence(events)
+    # The follow-up names no animal: both earlier subjects are carried forward.
+    assert [s["slug"] for s in events[0][1]["subjects"]] == ["sea-lion", "harbor-seal"]
+
+
+def test_assistant_history_is_clipped_and_bounded_for_the_llm():
+    seen = {}
+
+    def groq(req, n):
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(200, content=groq_stream("ok"))
+
+    long_answer = ("Sea lions are big. " * 300) + "\n\n**Sources**\n\n[1] Wikipedia: Sea lion — https://x\n\n" \
+                  "_Retrieval-only answer: no language model is configured._"
+    hist: List[Dict[str, str]] = []
+    for i in range(9):
+        hist += [{"role": "user", "content": f"Question {i} about sea lions"},
+                 {"role": "assistant", "content": long_answer}]
+    net = Net(groq=groq)
+    with chat_client(net, groq_api_key=GROQ_KEY) as c:
+        events, _ = ask(c, "And harbor seals?", history=hist)  # 19 messages, 5.7k-char assistant turns
+    assert events[0][1]["provider"] == "groq"
+    msgs = seen["body"]["messages"]
+    convo = msgs[2:]
+    assert len(convo) <= 10 and convo[0]["role"] == "user" and convo[-1]["content"] == "And harbor seals?"
+    for m in convo:
+        if m["role"] == "assistant":
+            assert len(m["content"]) <= 1500 and "**Sources**" not in m["content"]
+
+
+def test_user_message_limit_still_applies_but_not_to_assistant():
+    with chat_client(Net()) as c:
+        ok = c.post("/api/chat", json={"messages": [
+            {"role": "user", "content": "Tell me about lions"},
+            {"role": "assistant", "content": "x " * 6000},
+            {"role": "user", "content": "And tigers?"}]})
+        bad = c.post("/api/chat", json={"messages": [{"role": "user", "content": "y" * 2001}]})
+    assert ok.status_code == 200
+    assert bad.status_code == 422 and "2000" in bad.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "question,expected",
+    [
+        ("Is the snow leopard endangered?", {"name": "Snow leopard", "scientific_name": "Panthera uncia", "slug": None}),
+        ("Where does the arctic fox live?", {"name": "Arctic fox", "scientific_name": "Vulpes lagopus", "slug": None}),
+        ("How big is a killer whale?", {"name": "Orca", "scientific_name": "Orcinus orca", "slug": None}),
+    ],
+)
+def test_compound_names_prefer_the_live_animal(question, expected):
+    """M1: a KB alias inside a longer noun phrase (snow *leopard*) must not ground on the KB animal."""
+    net = Net()
+    with chat_client(net) as c:
+        events, _ = ask(c, question)
+    meta = events[0][1]
+    assert meta["subjects"] == [expected] and meta["retrieval"] == "live"
+
+
+@pytest.mark.parametrize(
+    "question,slug",
+    [("Is the leopard endangered?", "leopard"), ("Where do red pandas live?", "red-panda"),
+     ("Tell me about the spotted leopard", "leopard")],
+)
+def test_exact_kb_names_still_use_the_kb(question, slug):
+    net = Net()
+    with chat_client(net) as c:
+        events, _ = ask(c, question)
+    assert [s["slug"] for s in events[0][1]["subjects"]] == [slug]
+    assert events[0][1]["retrieval"] == "kb"
+
+
+def test_followup_keeps_live_subject():
+    """M2a: "Are they endangered?" after a live (non-KB) animal stays grounded on that animal."""
+    net = Net()
+    with chat_client(net) as c:
+        events, _ = ask(c, "Where do axolotls live in the wild?")
+        assert events[0][1]["subjects"][0]["name"] == "Axolotl"
+        hist = [{"role": "user", "content": "Where do axolotls live in the wild?"},
+                {"role": "assistant", "content": "Axolotls live in Xochimilco [1]."}]
+        events, _ = ask(c, "Are they endangered?", history=hist)
+    meta = events[0][1]
+    assert meta["retrieval"] == "live" and meta["subjects"][0]["name"] == "Axolotl"
+    assert "Critically Endangered" in answer(events)
+    assert "wild" not in " ".join(searches(net)) and "endangered" not in " ".join(searches(net))
+
+
+def test_leftover_words_do_not_trigger_live_searches():
+    """M2b: generic words such as "get", "wild", "big" are not search queries."""
+    from app.services.chat.retrieval import extract_query
+
+    for q in ("How do they get food in the wild?", "Are they big?", "Are they endangered?", "Is it ok?"):
+        assert extract_query(q) == "", q
+    assert extract_query("Where do axolotls live in the wild?") == "axolotls"
+    net = Net()
+    with chat_client(net) as c:
+        events, _ = ask(c, "How do they get food in the wild?")
+    assert searches(net) == [] and events[0][1]["retrieval"] == "none"
+
+
+def test_named_animals_take_priority_over_context():
+    """M2c: with a cheetah page context, "sea lion vs harbor seal" retrieves both seals, not the cheetah."""
+    net = Net()
+    with chat_client(net) as c:
+        events, _ = ask(c, SEA_LION_Q, context={"species_slug": "cheetah"})
+        assert [s["slug"] for s in events[0][1]["subjects"]] == ["sea-lion", "harbor-seal"]
+        # One named animal + context: both, the named one first.
+        events, _ = ask(c, "Is it faster than a lion?", context={"species_slug": "cheetah"})
+        assert [s["slug"] for s in events[0][1]["subjects"]] == ["lion", "cheetah"]
+
+
+def test_x_vs_y_resolves_both_sides_including_live():
+    net = Net()
+    with chat_client(net) as c:
+        events, _ = ask(c, "axolotl vs red panda")
+        subj = events[0][1]["subjects"]
+        assert [s["name"] for s in subj] == ["Axolotl", "Red panda"]
+        assert events[0][1]["retrieval"] == "kb+live"
+        # A KB name containing "and" is not split.
+        events, _ = ask(c, "Tell me about moths and butterflies")
+        assert [s["slug"] for s in events[0][1]["subjects"]] == ["moths-and-butterflies"]
+        # Never more than three subjects.
+        events, _ = ask(c, "lion, tiger, cheetah and jaguar")
+        assert len(events[0][1]["subjects"]) == 3
+
+
+def test_retrieval_only_answer_carries_wikipedia_licence():
+    with chat_client(Net()) as c:
+        events, _ = ask(c, "Tell me about the koala")
+    assert "CC BY-SA 4.0" in answer(events)

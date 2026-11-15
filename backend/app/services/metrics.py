@@ -81,7 +81,8 @@ def _strip_local_paths(obj: Any) -> Any:
         return {k: _strip_local_paths(v) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_strip_local_paths(v) for v in obj]
-    if isinstance(obj, str) and (obj.startswith("/") or re.match(r"^[A-Za-z]:\\", obj)):
+    # Absolute local paths, and repo-relative output paths ("outputs/figures/x.png"), -> file names.
+    if isinstance(obj, str) and (obj.startswith(("/", "outputs/", "outputs\\")) or re.match(r"^[A-Za-z]:\\", obj)):
         return re.split(r"[\\/]", obj)[-1]
     return obj
 

@@ -179,6 +179,11 @@ def _subject_section(s: Subject, heading: bool) -> str:
     return "\n".join(lines)
 
 
+# Retrieval-only answers quote Wikipedia extracts verbatim, so they carry the licence notice.
+WIKIPEDIA_ATTRIBUTION = ("_Text quoted from Wikipedia is available under "
+                         "[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)._")
+
+
 def compose_fallback(g: Grounding, reason: str = "no language model is configured") -> str:
     parts: List[str] = []
     if g.subjects:
@@ -204,6 +209,8 @@ def compose_fallback(g: Grounding, reason: str = "no language model is configure
                      "and may not address every part of your question._")
     else:
         parts.append(f"_Retrieval-only answer: {reason}._")
+    if any(s.kind == "wikipedia" for s in g.sources):
+        parts.append(WIKIPEDIA_ATTRIBUTION)
     return "\n\n".join(parts)
 
 

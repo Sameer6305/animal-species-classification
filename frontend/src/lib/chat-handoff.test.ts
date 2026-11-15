@@ -5,6 +5,8 @@ import {
   buildRequest,
   displayContent,
   chatStore,
+  historyContent,
+  MAX_ASSISTANT_CHARS,
   MAX_HISTORY,
   resetChat,
   retryChat,
@@ -40,9 +42,50 @@ describe('handoff links', () => {
 
   it('pre-fills a question that names the animal', () => {
     expect(suggestedQuestion({ slug: 'red-panda', name: 'Red panda', from: 'identify' })).toMatch(
-      /identified a red panda in my photo/,
+      /top match for my photo was Red panda\./,
     )
     expect(suggestedQuestion({ slug: 'cheetah', name: 'Cheetah', from: 'profile' })).toMatch(/the cheetah/)
+  })
+})
+
+describe('identify handoff wording', () => {
+  it('reads correctly for group and plural labels, with the confidence', () => {
+    for (const [slug, name] of [
+      ['moths-and-butterflies', 'Moths and butterflies'],
+      ['cattle', 'Cattle'],
+      ['fish', 'Fish'],
+    ] as const) {
+      const link = askLink({ slug, name, from: 'identify', probability: 0.874 })
+      const h = parseHandoff(link.slice(4))
+      expect(h).toEqual({ slug, name, from: 'identify', probability: 0.87 })
+      const q = suggestedQuestion(h!)
+      expect(q).toBe(
+        `The model's top match for my photo was ${name} (87%). Where do they live, and how are they doing in the wild?`,
+      )
+      expect(q).not.toMatch(/\ba (moths|cattle|fish)\b/i)
+    }
+  })
+
+  it('hedges when the prediction was low-confidence', () => {
+    const link = askLink({
+      slug: 'fox',
+      name: 'Fox',
+      from: 'identify',
+      probability: 0.31,
+      lowConfidence: true,
+    })
+    expect(link).toContain('low=1')
+    const q = suggestedQuestion(parseHandoff(link.slice(4))!)
+    expect(q).toMatch(/^The model wasn't confident about my photo; its best guess was Fox \(31%\)\./)
+  })
+
+  it('ignores confidence parameters outside identify handoffs or out of range', () => {
+    expect(parseHandoff('?species=fox&name=Fox&p=50&low=1')).toEqual({
+      slug: 'fox',
+      name: 'Fox',
+      from: undefined,
+    })
+    expect(parseHandoff('?species=fox&name=Fox&from=identify&p=500')?.probability).toBeUndefined()
   })
 })
 
@@ -113,6 +156,35 @@ describe('chat session', () => {
     expect(req.context).toBeUndefined()
     expect(req.messages.length).toBeLessThanOrEqual(MAX_HISTORY)
     expect(req.messages[0]!.role).toBe('user')
+  })
+
+  it('strips the inline Sources block and clips long answers in the request history', () => {
+    const long =
+      'The sea lion is a pinniped. '.repeat(80) +
+      '\n\n**Sources**\n\n[1] Wikipedia: Sea lion — https://en.wikipedia.org/wiki/Sea_lion' +
+      '\n\n_Retrieval-only answer: no language model is configured._'
+    expect(long.length).toBeGreaterThan(2000)
+    const msgs: ChatMsg[] = [
+      {
+        id: 'a',
+        role: 'user',
+        content: 'What is the difference between a sea lion and a harbor seal?',
+        status: 'done',
+        sources: [],
+      },
+      { id: 'b', role: 'assistant', content: long, status: 'done', sources: [], provider: 'fallback' },
+      { id: 'c', role: 'user', content: 'Which one is bigger?', status: 'done', sources: [] },
+    ]
+    const req = buildRequest(msgs, null)
+    const prev = req.messages[1]!
+    expect(prev.role).toBe('assistant')
+    expect(prev.content.length).toBeLessThanOrEqual(MAX_ASSISTANT_CHARS)
+    expect(prev.content).not.toContain('**Sources**')
+    expect(prev.content.endsWith('…')).toBe(true)
+    // Short answers keep their text, minus the sources list.
+    expect(
+      historyContent('Short answer [1].\n\n**Sources**\n\n[1] Wikipedia: X\n\n_Retrieval-only answer: x._'),
+    ).toBe('Short answer [1].\n\n_Retrieval-only answer: x._')
   })
 
   it('marks 429 as retryable and retry re-asks the same question', async () => {

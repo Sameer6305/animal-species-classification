@@ -2,6 +2,46 @@
 
 A comparative study of four CNN/Transformer architectures — a paper-baseline model, an efficient CNN, a modern CNN, and a vision transformer — trained on the Animal-80 dataset to classify 80 animal species.
 
+## WildLens platform
+
+**WildLens** is the showcase web app built on this study's ResNet50: identify an animal in a photo
+(top-5 with confidence and a class-activation heatmap), browse an atlas of the 80 classes with
+conservation status and GBIF occurrence maps, and ask a grounded Field Guide chat about any animal
+(answers cite Wikipedia, Wikidata and iNaturalist). It runs fully locally for free; only the chat's
+live lookups and the optional LLM need a network.
+
+**Quick start** (Python 3.9–3.12, Node 22):
+
+```bash
+# 1. Model files (gitignored, ~95 MB FP32 + 47 MB FP16), verified against models/registry.json
+scripts/download_models.sh
+
+# 2. Backend: FastAPI + ONNX Runtime on http://127.0.0.1:8000 (docs at /docs)
+cd backend
+python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/uvicorn app.main:app --reload
+
+# 3. Frontend: React + Vite on http://localhost:5173 (proxies /api to the backend)
+cd frontend
+nvm use            # Node 22 from .nvmrc
+npm install && npm run dev
+```
+
+- **Models:** until the ONNX files are hosted (planned for Phase 7) `download_models.sh` reports that
+  no download URL is configured. Copy the files from a teammate into `models/` and run
+  `scripts/download_models.sh --check`, or export them from the training checkpoint with
+  `scripts/export_onnx.py --fp16` (see the script header). Without them the app still runs, but
+  identification returns "model not loaded".
+- **Chat LLM (optional):** without a key the Field Guide gives a clearly labelled retrieval-only
+  answer. For LLM answers, create a free Groq key (no card) at <https://console.groq.com> and put
+  `WILDLENS_GROQ_API_KEY=...` in `backend/.env`.
+- **More:** [`backend/README.md`](backend/README.md) (API, configuration, chat design),
+  [`frontend/README.md`](frontend/README.md) (pages, inference modes, tests),
+  [`docs/platform/PLAN.md`](docs/platform/PLAN.md) (plan and phase log),
+  [`data/LICENSE-DATA.md`](data/LICENSE-DATA.md) (data and image licences).
+
+The ML study itself is described below.
+
 ## Reference Paper
 
 Ukwuoma, C.C., Qin, Z., Yussif, S.B., et al. *"Animal species detection and classification framework based on modified multi-scale attention mechanism and feature pyramid network."* Scientific African, 16 (2022), e01151. [DOI: 10.1016/j.sciaf.2022.e01151](https://doi.org/10.1016/j.sciaf.2022.e01151)

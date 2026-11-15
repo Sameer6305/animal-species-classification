@@ -141,3 +141,32 @@ def test_decode_pixel_limit():
     with pytest.raises(ImageValidationError) as e:
         decode_image(make_image_bytes((400, 300)), max_pixels=100_000)
     assert e.value.status_code == 422
+
+
+def _chunked_multipart(payload: bytes, chunk: int = 256 * 1024):
+    """Multipart body yielded in chunks, so httpx sends it without a Content-Length (chunked)."""
+    boundary = "wildlensboundary"
+    head = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"x.jpg\"\r\n"
+            "Content-Type: image/jpeg\r\n\r\n").encode()
+    body = head + payload + f"\r\n--{boundary}--\r\n".encode()
+
+    def gen():
+        for i in range(0, len(body), chunk):
+            yield body[i:i + chunk]
+
+    return gen(), {"content-type": f"multipart/form-data; boundary={boundary}"}
+
+
+@pytest.mark.parametrize("path", ["/api/predict", "/api/explain"])
+def test_oversize_chunked_upload_without_content_length_is_413(client, settings, path):
+    content, headers = _chunked_multipart(b"\xff" * (settings.max_upload_bytes + 200 * 1024))
+    r = client.post(path, content=content, headers=headers)
+    assert "content-length" not in {k.lower() for k in r.request.headers}
+    assert r.status_code == 413 and "10 MB" in r.json()["detail"]
+
+
+def test_small_chunked_upload_without_content_length_reaches_handler(client):
+    content, headers = _chunked_multipart(b"not an image")
+    r = client.post("/api/predict", content=content, headers=headers)
+    assert "content-length" not in {k.lower() for k in r.request.headers}
+    assert r.status_code == 422  # decoded by the handler, not rejected by the size guard

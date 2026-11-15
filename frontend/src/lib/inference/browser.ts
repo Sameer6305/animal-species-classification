@@ -12,7 +12,7 @@ import type { InferenceSession, Tensor } from 'onnxruntime-web'
 
 import { decodeImage, grayscalePng } from '@/lib/inference/image'
 import { camHeatmap, preprocessPixels, softmax, topK } from '@/lib/inference/math'
-import { fetchModel } from '@/lib/inference/model-cache'
+import { evictModel, fetchModel } from '@/lib/inference/model-cache'
 import {
   CAM_METHOD,
   EXPLAIN_MAX_SIDE,
@@ -30,6 +30,7 @@ type Ort = typeof import('onnxruntime-web')
 interface Variant {
   onnx: string
   usable: boolean
+  sha256?: string
 }
 
 const entry = registry.models.find((m) => m.id === registry.default) ?? registry.models[0]!
@@ -56,6 +57,12 @@ function variantFor(url: string): string | null {
   const file = url.split('?')[0]?.split('/').pop()
   for (const [name, v] of Object.entries(variants)) if (v && v.onnx.split('/').pop() === file) return name
   return null
+}
+
+/** Registry SHA-256 of the file at `url` (matched by file name), used to key and verify the cache. */
+export function modelSha256(url: string = MODEL_URL): string | null {
+  const name = variantFor(url)
+  return (name && variants[name]?.sha256) || null
 }
 
 interface Loaded {
@@ -101,9 +108,21 @@ async function load(onProgress?: (p: LoadProgress) => void, signal?: AbortSignal
   ort.env.wasm.numThreads = globalThis.crossOriginIsolated
     ? Math.min(4, navigator.hardwareConcurrency || 1)
     : 1
-  const bytes = await fetchModel(MODEL_URL, onProgress, signal)
+  const sha256 = modelSha256(MODEL_URL)
+  const model = await fetchModel(MODEL_URL, { sha256, onProgress, signal })
   onProgress?.({ phase: 'session' })
-  const { session, backend } = await createSession(ort as unknown as Ort, bytes)
+  let created: { session: InferenceSession; backend: InferenceBackend }
+  try {
+    created = await createSession(ort as unknown as Ort, model.bytes)
+  } catch (err) {
+    if (!model.fromCache) throw err
+    // A cached copy that ONNX Runtime cannot load (corrupt or stale): drop it and retry once from the network.
+    await evictModel(MODEL_URL, sha256)
+    const fresh = await fetchModel(MODEL_URL, { sha256, onProgress, signal, bypassCache: true })
+    onProgress?.({ phase: 'session' })
+    created = await createSession(ort as unknown as Ort, fresh.bytes)
+  }
+  const { session, backend } = created
   onProgress?.({ phase: 'ready' })
   return { ort: ort as unknown as Ort, session, backend, fcWeight }
 }
@@ -171,8 +190,8 @@ export class BrowserInference implements InferenceEngine {
       K,
       gridH: gh,
       gridW: gw,
-      imageWidth: img.width,
-      imageHeight: img.height,
+      imageWidth: img.naturalWidth,
+      imageHeight: img.naturalHeight,
       maxSide: EXPLAIN_MAX_SIDE,
     })
     const heatmapPng = await grayscalePng(cam.heat, cam.width, cam.height)
@@ -188,7 +207,7 @@ export class BrowserInference implements InferenceEngine {
       threshold: LOW_CONFIDENCE_THRESHOLD,
       inferenceMs: run.ms,
       explainMs,
-      image: { width: img.width, height: img.height },
+      image: { width: img.naturalWidth, height: img.naturalHeight },
       heatmapPng,
       heatmapWidth: cam.width,
       heatmapHeight: cam.height,

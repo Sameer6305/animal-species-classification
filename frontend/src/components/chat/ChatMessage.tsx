@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Spinner } from '@/components/ui/spinner'
 import type { ChatProvider, ChatSource } from '@/lib/api'
 import { citationAnchor } from '@/lib/citations'
+import { safeHttpUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
 
 export type ChatMessageStatus = 'searching' | 'streaming' | 'done' | 'error'
@@ -36,11 +37,12 @@ function linkCitations(md: string): string {
 }
 
 function CitationChip({ n, source, scope }: { n: number; source?: ChatSource; scope: string }) {
+  const url = safeHttpUrl(source?.url)
   const chip = (
     <a
-      href={source?.url ?? `#${citationAnchor(scope, n)}`}
-      target={source?.url ? '_blank' : undefined}
-      rel="noreferrer"
+      href={url ?? `#${citationAnchor(scope, n)}`}
+      target={url ? '_blank' : undefined}
+      rel={url ? 'noopener noreferrer' : undefined}
       aria-label={source ? `Source ${n}: ${source.title}` : `Source ${n}`}
       className="mx-0.5 inline-flex h-[1.15rem] min-w-[1.15rem] -translate-y-px items-center justify-center rounded-sm border border-border-strong bg-surface-raised px-1 align-middle font-mono text-[0.6875rem] font-medium text-fg-secondary no-underline transition-colors hover:border-accent hover:text-fg"
     >
@@ -85,8 +87,10 @@ export function ChatMessage({
         const n = Number(href.slice(5))
         return <CitationChip n={n} source={byId.get(n)} scope={id} />
       }
+      const url = safeHttpUrl(href)
+      if (!url) return <>{children as ReactNode}</>
       return (
-        <a href={href} target="_blank" rel="noreferrer">
+        <a href={url} target="_blank" rel="noopener noreferrer">
           {children as ReactNode}
         </a>
       )
@@ -116,6 +120,8 @@ export function ChatMessage({
           <Markdown
             remarkPlugins={[remarkGfm]}
             components={components}
+            // No images from model output or retrieved text (no tracking pixels / hotlinks).
+            disallowedElements={['img']}
             urlTransform={(url) => (url.startsWith('cite:') ? url : defaultUrlTransform(url))}
           >
             {linkCitations(content)}

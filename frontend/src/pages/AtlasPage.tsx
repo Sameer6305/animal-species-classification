@@ -235,7 +235,7 @@ function AtlasCard({ s, number, localSrc }: { s: SpeciesSummary; number?: number
       species={{ ...s, number, rank: s.rank ?? null, image: s.image ?? null }}
       imageSrc={localSrc}
       renderLink={(children) => (
-        <Link to={`/species/${s.slug}`} className="block h-full" aria-label={`${s.common_name} profile`}>
+        <Link to={`/species/${s.slug}`} aria-label={`${s.common_name} profile`}>
           {children}
         </Link>
       )}

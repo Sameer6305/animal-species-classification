@@ -51,7 +51,8 @@ def test_metrics_shape(client):
 
 def test_metrics_strip_local_paths(client):
     text = client.get("/api/metrics").text
-    assert "/Users/" not in text and "\\\\Users" not in text
+    home = "/" + "Users/"  # split so `git grep` for personal paths stays clean
+    assert home not in text and "\\\\Users" not in text
     figs = client.get("/api/metrics").json()["models"]["resnet50"]["raw"]["resnet50_evaluation.json"]["figures"]
     assert figs["roc_auc"] == "resnet50_roc_auc.png"
 

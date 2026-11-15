@@ -572,7 +572,7 @@ export default function UiPreview() {
               key={slug}
               species={bySlug(slug)}
               renderLink={(children) => (
-                <a href={`#species-${slug}`} className="h-full" onClick={(e) => e.preventDefault()}>
+                <a href={`#species-${slug}`} onClick={(e) => e.preventDefault()}>
                   {children}
                 </a>
               )}

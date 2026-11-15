@@ -34,10 +34,10 @@ The typed client is in `src/lib/api.ts`.
 `src/lib/inference/` is one interface (`InferenceEngine.identify(file)` → top-5, low-confidence flag,
 CAM heatmap, timing) with two implementations, chosen at build time:
 
-| `VITE_INFERENCE_MODE` | Implementation     | What runs where                                                                                                        |
-| --------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `server` (default)    | `ServerInference`  | `/api/predict` + `/api/explain` (amber colormap) in parallel; the backend runs ONNX Runtime on CPU.                    |
-| `browser`             | `BrowserInference` | onnxruntime-web in the page (WebGPU if an adapter is available, else WebAssembly). The photo never leaves the browser. |
+| `VITE_INFERENCE_MODE` | Implementation     | What runs where                                                                                                                                       |
+| --------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `server` (default)    | `ServerInference`  | One `/api/explain` call (amber colormap; returns the top-5, low-confidence flag and CAM from one forward pass); the backend runs ONNX Runtime on CPU. |
+| `browser`             | `BrowserInference` | onnxruntime-web in the page (WebGPU if an adapter is available, else WebAssembly). The photo never leaves the browser.                                |
 
 Browser mode reproduces the backend exactly in TypeScript (`src/lib/inference/math.ts`): a port of
 Pillow's BILINEAR resize (antialiased triangle filter, 22-bit fixed point, horizontal then vertical
@@ -46,7 +46,17 @@ pass; bit-identical to the backend on the unit-test fixtures), /255, dataset mea
 `models/resnet50_fc.json` (ReLU(Σ W·A) → normalise → Pillow float bilinear upsample to the photo size,
 capped at 1024 px → normalise → uint8). Low-confidence threshold 0.5, as on the server.
 onnxruntime-web (and the ~27 MB `.wasm`) is only imported in browser mode; the model is downloaded
-once with a progress bar and kept in Cache Storage (`wildlens-models-v1`).
+once with a progress bar and kept in Cache Storage (`wildlens-models-v2`), keyed by URL + the
+variant's `sha256` from `models/registry.json`, so a re-exported model is fetched again. Downloads
+that are a web page (e.g. an SPA fallback for a missing file), implausibly small or fail the hash
+check are rejected with a clear message; if ONNX Runtime cannot load a cached copy, it is evicted
+and downloaded once more. Photos above 50 MP are rejected (same limit as the backend); photos above
+24 MP are scaled down by the browser before their pixels are read (exact server parity holds up to
+24 MP), then go through the same Pillow-equivalent resize to 224×224.
+
+The "Model time" on the Identify page is measured where the model ran (server or browser tab):
+preprocessing + forward pass, plus the heatmap; upload/network time and the one-time model download
+are not included.
 
 ```bash
 VITE_INFERENCE_MODE=browser npm run dev     # model served from ../models by the dev server

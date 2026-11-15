@@ -31,9 +31,9 @@ export async function prepareInference(
 /** Browser mode only: model URL and whether it is already cached. */
 export async function browserModelInfo(): Promise<{ url: string; cached: boolean } | null> {
   if (INFERENCE_MODE !== 'browser') return null
-  const [{ MODEL_URL }, { isModelCached }] = await Promise.all([
+  const [{ MODEL_URL, modelSha256 }, { isModelCached }] = await Promise.all([
     import('@/lib/inference/browser'),
     import('@/lib/inference/model-cache'),
   ])
-  return { url: MODEL_URL, cached: await isModelCached(MODEL_URL) }
+  return { url: MODEL_URL, cached: await isModelCached(MODEL_URL, modelSha256(MODEL_URL)) }
 }

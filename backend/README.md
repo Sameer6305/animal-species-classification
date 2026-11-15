@@ -7,12 +7,17 @@ grounded Field Guide chat (`/api/chat`, Server-Sent Events).
 
 ## Prerequisites
 
-- Python 3.9+ (3.11 recommended; the Docker image in Phase 6 will use 3.11).
+- **Python 3.9–3.12** (3.11 recommended; the Docker image in Phase 6 will use 3.11). Python 3.13
+  is not supported yet: the pinned `onnxruntime==1.19.2` and `numpy==2.0.2` have no 3.13 wheels.
 - Model artifacts in `../models/`: `registry.json`, `classes.json`, `resnet50_fc.npz`
-  (committed) and `resnet50.onnx` (gitignored, ~95 MB; generate with
-  `scripts/export_onnx.py`, see `scripts/download_models.sh`). Without the ONNX file
-  the API still starts (`/api/health` reports `degraded`) and the metrics/figures
-  endpoints work; `/api/predict` and `/api/explain` return 503.
+  (committed) and `resnet50.onnx` (gitignored, ~95 MB). Get it with
+  `scripts/download_models.sh` (from the repo root; verifies the SHA-256 listed in
+  `models/registry.json`). Until the files are hosted (Phase 7) the script reports that no
+  download URL is configured; team members then copy the file from a teammate and run
+  `scripts/download_models.sh --check`, or export it from the training checkpoint with
+  `scripts/export_onnx.py` (see the script header). Without the ONNX file the API still starts
+  (`/api/health` reports `degraded`) and the metrics/figures endpoints work; `/api/predict` and
+  `/api/explain` return 503.
 
 ## Run
 
@@ -40,7 +45,7 @@ All routes are under `/api`. Interactive docs: `/docs` (Swagger UI), `/redoc`, s
 | GET | `/api/health` | `status` (`ok` / `degraded`), version, default model, per-model load status. |
 | GET | `/api/models` | Registered models: id, display name, served variant, classes, input size, loaded, test-metrics summary. |
 | POST | `/api/predict` | Multipart: `file` (required), `model` (optional, default from registry), `top_k` (1–10, default 5). Returns top-k `{label, index, probability}`, `low_confidence`, `inference_ms`, image `width/height/format`. |
-| POST | `/api/explain` | Multipart: `file`, `model`, `class_index` (default top-1), `colormap` (`jet` \| `amber`). One forward pass; returns base64 `overlay_png` (RGB) and `heatmap_png` (8-bit grayscale) at the uploaded image size (longest side capped at 1024 px), the 7×7 `grid`, label/probability for the explained class and the top-5. |
+| POST | `/api/explain` | Multipart: `file`, `model`, `class_index` (default top-1), `colormap` (`jet` \| `amber`). One forward pass; returns base64 `overlay_png` (RGB) and `heatmap_png` (8-bit grayscale) at the uploaded image size (longest side capped at 1024 px), the 7×7 `grid`, label/probability for the explained class, the top-5, `low_confidence` + `low_confidence_threshold`, `inference_ms` (preprocessing + forward pass) and `explain_ms` (CAM + PNGs). The frontend's server mode uses only this call. |
 | GET | `/api/metrics` | All four models' results from `outputs/results/*` in one stable shape keyed by model id: `summary`, `hparams`, `per_class_accuracy`, `per_class_prf`, `history` (column lists), `figures`, `sources`, `raw`. Missing values are `null`. |
 | GET | `/api/figures` | List of PNGs in `outputs/figures/` (name, url, owning model, size). |
 | GET | `/api/figures/{name}` | One PNG. Only plain `*.png` names that exist in the directory listing are served; anything else is 404. |
@@ -61,12 +66,12 @@ Errors: `{"detail": "..."}`. Upload rules:
 
 | Case | Status |
 |---|---|
-| Body/file larger than `WILDLENS_MAX_UPLOAD_MB` (10 MB) | 413 |
+| Body/file larger than `WILDLENS_MAX_UPLOAD_MB` (10 MB); also enforced while streaming when the request has no `Content-Length` (chunked) | 413 |
 | Empty, undecodable, truncated, or > 50 MP image | 422 |
 | Decodable but not JPEG/PNG/WebP (e.g. GIF) | 415 |
 | `top_k` outside 1–10, `class_index` outside 0–79, bad `colormap` | 422 |
 | Unknown `model` | 404 |
-| Model registered but ONNX not loaded | 503 |
+| Model registered but ONNX not loaded (run `scripts/download_models.sh`) | 503 |
 
 The format is checked by decoding, never by the client's content type. EXIF
 orientation is applied before inference, and `width/height` are reported after it.
@@ -91,11 +96,13 @@ Phase 2 (chat and knowledge base):
 | Variable | Default | Meaning |
 |---|---|---|
 | `WILDLENS_GROQ_API_KEY` (or `GROQ_API_KEY`) | unset | Enables Groq as the first chat provider. Server-side only. |
-| `WILDLENS_GROQ_MODEL` | `llama-3.3-70b-versatile` | Any Groq chat model id ([list](https://console.groq.com/docs/models)); `llama-3.1-8b-instant` is faster. |
+| `WILDLENS_GROQ_MODEL` | `llama-3.3-70b-versatile` | Any Groq chat model id ([list](https://console.groq.com/docs/models)). **`llama-3.1-8b-instant` is the low-quota option**: faster, with much higher free-tier daily token limits than the 70B model; use it if Groq starts answering 429. |
 | `WILDLENS_OLLAMA_URL` | unset (disabled) | e.g. `http://127.0.0.1:11434` to use a local Ollama after Groq. |
 | `WILDLENS_OLLAMA_MODEL` | `llama3.2` | Ollama model name (`ollama pull llama3.2`). |
 | `WILDLENS_CHAT_RATE_LIMIT_PER_MINUTE` | `20` | Per client IP (in-memory, single process; `0` disables). |
-| `WILDLENS_CHAT_MAX_MESSAGES` / `WILDLENS_CHAT_MAX_MESSAGE_CHARS` / `WILDLENS_CHAT_MAX_BODY_KB` | `20` / `2000` / `64` | Request limits (422 / 422 / 413). |
+| `WILDLENS_CHAT_MAX_MESSAGES` / `WILDLENS_CHAT_MAX_MESSAGE_CHARS` / `WILDLENS_CHAT_MAX_BODY_KB` | `20` / `2000` / `64` | Request limits (422 / 422 / 413). The character limit applies to **user** messages only; earlier assistant answers are never rejected for length. |
+| `WILDLENS_CHAT_MAX_ASSISTANT_CHARS` | `1500` | Earlier answers sent back as history are trimmed to this (inline "Sources" list removed first) before reaching the LLM. |
+| `WILDLENS_CHAT_HISTORY_MESSAGES` | `10` | Only the last N messages go to the LLM, to save Groq free-tier tokens (retrieval still reads every user turn). |
 | `WILDLENS_CHAT_TIMEOUT_S` | `45` | Total time budget for one answer (retrieval + generation). |
 | `WILDLENS_RETRIEVAL_TIMEOUT_S` | `10` | Live Wikipedia/Wikidata/iNaturalist lookup budget. |
 | `WILDLENS_LLM_CONNECT_TIMEOUT_S` / `WILDLENS_LLM_READ_TIMEOUT_S` | `5` / `20` | Per-request LLM timeouts. |
@@ -114,16 +121,27 @@ the startup log lists the active chat providers.
 
 `POST /api/chat` answers questions about any animal, grounded in retrieved sources:
 
-1. **Find the animal(s):** the `context` from a prediction (`species_slug` or class `label`), then
-   names of the 80 KB classes in the latest message (incl. plurals and a few aliases), then a live
-   Wikipedia search for anything else; a hit counts only if its Wikidata item has a taxon name (P225)
-   and iNaturalist classifies it as an animal. Follow-ups ("how long do they live?") reuse animals
-   named in earlier user turns.
+1. **Find the animal(s)** (at most 3), animals named in the latest message first:
+   - names of the 80 KB classes (incl. plurals and a few aliases). If the name is part of a longer
+     noun phrase ("**snow** leopard", "**arctic** fox", "**killer** whale") the full phrase is looked
+     up live and wins when the Wikipedia title, the first sentence of its intro or the iNaturalist
+     common name contains it; exact names ("leopard", "red panda") stay on the KB;
+   - a live Wikipedia search for anything else; a hit counts only if its Wikidata item has a taxon
+     name (P225) and iNaturalist classifies it as an animal. Generic words ("get", "wild", "big",
+     "endangered", …) are stopwords, and a query needs a word of 3+ letters, so leftovers never
+     trigger a search;
+   - "X vs Y", "X and Y", "X compared to Y" are split so each side is resolved;
+   - the `context` from a prediction or profile page (`species_slug` or class `label`) is added only
+     when the question names fewer than two animals (named animals always come first);
+   - follow-ups that name nothing ("are they endangered?", "which one is bigger?") reuse the
+     animals of the latest earlier user turn that had any, including live ones (live results are
+     cached for 6 h, so this costs no extra requests).
 2. **Retrieve:** the KB entry for the 80 classes (works offline); otherwise the live Wikipedia intro,
    Wikidata (IUCN status) and iNaturalist (common name, observations). Questions about the project
    add a "WildLens project facts" source.
 3. **Generate:** Groq → Ollama (only if configured) → a retrieval-only answer composed from the
-   facts (summary, scientific name, status, habitat sentence, sources), clearly labelled as such.
+   facts (summary, scientific name, status, habitat sentence, sources), clearly labelled as such
+   and ending with a CC BY-SA 4.0 notice when it quotes Wikipedia text.
    Groq gets one retry on 429/5xx; any provider that fails before its first token is skipped.
 4. **Stream** (`text/event-stream`), each `data:` line is JSON:
 

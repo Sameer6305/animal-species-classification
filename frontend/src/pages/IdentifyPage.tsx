@@ -300,9 +300,18 @@ function ResultPanel({ state }: { state: IdentifyState }) {
 
       <dl className="grid grid-cols-2 gap-x-8 gap-y-3 border-y border-border py-4 text-small">
         <div>
-          <dt className="type-overline !text-fg-muted">Inference</dt>
-          <dd className="tabular mt-1 text-fg" data-testid="inference-ms">
+          <dt className="type-overline !text-fg-muted">Model time</dt>
+          <dd
+            className="tabular mt-1 text-fg"
+            data-testid="inference-ms"
+            title={
+              r.mode === 'server'
+                ? 'Measured on the server: preprocessing and forward pass, then the heatmap. Upload and network time are not included.'
+                : 'Measured in this browser tab: preprocessing and forward pass, then the heatmap. The one-time model download is not included.'
+            }
+          >
             {formatMs(r.inferenceMs)}
+            <span className="text-fg-muted"> forward pass</span>
             {r.explainMs != null && <span className="text-fg-muted"> + {formatMs(r.explainMs)} heatmap</span>}
           </dd>
         </div>
@@ -341,7 +350,15 @@ function ResultPanel({ state }: { state: IdentifyState }) {
             </Link>
           </Button>
           <Button asChild variant="secondary">
-            <Link to={askLink({ slug: topSlug, name: top.label, from: 'identify' })}>
+            <Link
+              to={askLink({
+                slug: topSlug,
+                name: top.label,
+                from: 'identify',
+                probability: top.probability,
+                lowConfidence: r.lowConfidence,
+              })}
+            >
               <MessageSquareText /> Ask the Field Guide about {top.label.toLowerCase()}
             </Link>
           </Button>
@@ -421,7 +438,7 @@ function SampleGallery({ active, disabled }: { active: string | null; disabled: 
           {SAMPLES.map((s) => (
             <li key={s.slug} className="flex gap-2">
               <span className="w-28 shrink-0 text-fg-secondary">{s.common_name}</span>
-              <Attribution image={s.credit} className="min-w-0 truncate" />
+              <Attribution image={s.credit} resized className="min-w-0 truncate" />
             </li>
           ))}
         </ul>

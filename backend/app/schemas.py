@@ -92,6 +92,7 @@ class ExplainResponse(BaseModel):
     predicted: Prediction = Field(..., description="Top-1 prediction (may differ from `class_index`).")
     predictions: List[Prediction] = Field(..., description="Top-5 predictions from the same forward pass.")
     low_confidence: bool
+    low_confidence_threshold: float = Field(0.5, examples=[0.5])
     method: str = Field(..., examples=["CAM (== Grad-CAM for this GAP->Linear head), layer4"])
     colormap: str = Field(..., examples=["jet"])
     width: int = Field(..., description="Width of both PNGs (uploaded image size, longest side capped).")
@@ -259,7 +260,9 @@ class SpeciesDetail(BaseModel):
 # ---------------------------------------------------------------- chat
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
-    content: str = Field(..., min_length=1, max_length=20000)
+    # User messages are limited by WILDLENS_CHAT_MAX_MESSAGE_CHARS in the router; assistant
+    # messages (earlier answers) are trimmed instead, so only the body-size limit applies here.
+    content: str = Field(..., min_length=1, max_length=65536)
 
 
 class ChatContext(BaseModel):

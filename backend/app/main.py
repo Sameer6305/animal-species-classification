@@ -39,6 +39,45 @@ project's training/evaluation metrics and figures, a species knowledge base
 
 UPLOAD_PATHS = ("/api/predict", "/api/explain")
 MULTIPART_OVERHEAD = 64 * 1024
+
+
+class StreamedUploadLimit:
+    """Enforces the upload size limit while reading a request body that has no Content-Length
+    (chunked transfer). The body is buffered up to ``limit`` bytes and replayed to the app;
+    beyond that the request is answered with 413 without reading the rest. Requests that do
+    declare a Content-Length are passed through (checked by the ``reject_oversized_uploads``
+    middleware and again in the handler)."""
+
+    def __init__(self, app, paths, limit: int, detail: str):
+        self.app, self.paths, self.limit, self.detail = app, set(paths), limit, detail
+
+    async def __call__(self, scope, receive, send):
+        if (scope["type"] != "http" or scope.get("method") != "POST" or scope.get("path") not in self.paths
+                or any(k.lower() == b"content-length" for k, _ in scope.get("headers") or [])):
+            await self.app(scope, receive, send)
+            return
+        chunks, total, more = [], 0, True
+        while more:
+            msg = await receive()
+            if msg["type"] == "http.disconnect":
+                return
+            body = msg.get("body", b"")
+            total += len(body)
+            if total > self.limit:
+                await JSONResponse(status_code=413, content={"detail": self.detail})(scope, receive, send)
+                return
+            chunks.append(body)
+            more = msg.get("more_body", False)
+        replayed = False
+
+        async def replay():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": b"".join(chunks), "more_body": False}
+            return await receive()
+
+        await self.app(scope, replay, send)
 CHAT_PATH = "/api/chat"
 # Generic User-Agent for all outbound requests (Wikipedia, Wikidata, iNaturalist, Groq, ...):
 # no personal names, e-mails or usernames.
@@ -98,6 +137,12 @@ def create_app(
         ],
     )
     app.add_middleware(
+        StreamedUploadLimit,
+        paths=UPLOAD_PATHS,
+        limit=settings.max_upload_bytes + MULTIPART_OVERHEAD,
+        detail=f"File too large; the limit is {settings.max_upload_mb:g} MB.",
+    )
+    app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
         allow_methods=["GET", "POST", "OPTIONS"],
@@ -107,7 +152,8 @@ def create_app(
     @app.middleware("http")
     async def reject_oversized_uploads(request: Request, call_next):
         # Fail fast on a declared oversized body, before multipart parsing spools it.
-        # The exact per-file check happens again in the handler (Content-Length can be absent).
+        # The exact per-file check happens again in the handler. Bodies without a Content-Length
+        # (chunked) are size-checked while streaming by StreamedUploadLimit.
         if request.method == "POST" and request.url.path in UPLOAD_PATHS:
             length = request.headers.get("content-length")
             if length and length.isdigit() and int(length) > settings.max_upload_bytes + MULTIPART_OVERHEAD:

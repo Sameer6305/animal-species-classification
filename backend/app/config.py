@@ -61,7 +61,8 @@ class Settings(BaseSettings):
     )
     # Default chosen from https://console.groq.com/docs/models (checked 2026-11-14): the
     # Llama-family *production* models are llama-3.3-70b-versatile and llama-3.1-8b-instant.
-    # 70B gives better grounded answers; switch to llama-3.1-8b-instant if limits bite.
+    # 70B gives better grounded answers; WILDLENS_GROQ_MODEL=llama-3.1-8b-instant is the
+    # low-quota option (much higher free-tier daily token limits).
     groq_model: str = "llama-3.3-70b-versatile"
     groq_base_url: str = "https://api.groq.com/openai/v1"
     groq_retry_delay_s: float = Field(1.0, ge=0.0, le=10.0)  # wait before the single retry on 429/5xx
@@ -72,7 +73,13 @@ class Settings(BaseSettings):
 
     chat_rate_limit_per_minute: int = Field(20, ge=0)  # per client IP; 0 disables
     chat_max_messages: int = Field(20, ge=1, le=100)
-    chat_max_message_chars: int = Field(2000, ge=50, le=20000)
+    chat_max_message_chars: int = Field(2000, ge=50, le=20000)  # user messages only
+    # Earlier assistant answers are never rejected for length: they are trimmed to this many
+    # characters (inline "Sources" block removed first) before being sent to the LLM.
+    chat_max_assistant_chars: int = Field(1500, ge=100, le=20000)
+    # Only the last N messages of the conversation go to the LLM (saves Groq free-tier tokens);
+    # retrieval still sees every user turn for follow-up subjects.
+    chat_history_messages: int = Field(10, ge=1, le=100)
     chat_max_body_kb: int = Field(64, ge=4)
     chat_max_tokens: int = Field(700, ge=64, le=4096)
     chat_timeout_s: float = Field(45.0, gt=0)  # total budget for one answer (retrieval + generation)

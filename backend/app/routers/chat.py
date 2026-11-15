@@ -49,7 +49,7 @@ def rate_limit(request: Request) -> None:
     responses={
         200: {"content": {"text/event-stream": {}}, "description": "SSE stream of meta/token/done|error events."},
         413: {"model": ErrorResponse, "description": "Request body too large."},
-        422: {"description": "Invalid messages (count, length, roles, last message not from the user)."},
+        422: {"description": "Invalid messages (count, user-message length, roles, last message not from the user)."},
         429: {"model": ErrorResponse, "description": "Per-IP rate limit exceeded."},
     },
 )
@@ -63,8 +63,9 @@ async def chat(
     if len(body.messages) > settings.chat_max_messages:
         return _invalid(f"At most {settings.chat_max_messages} messages are allowed.")
     for m in body.messages:
-        if len(m.content) > settings.chat_max_message_chars:
-            return _invalid(f"Each message must be at most {settings.chat_max_message_chars} characters.")
+        # Only questions are limited; earlier answers are trimmed server-side (see ChatService).
+        if m.role == "user" and len(m.content) > settings.chat_max_message_chars:
+            return _invalid(f"Each question must be at most {settings.chat_max_message_chars} characters.")
     if body.messages[-1].role != "user":
         return _invalid("The last message must have role 'user'.")
     if not body.messages[-1].content.strip():

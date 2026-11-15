@@ -10,8 +10,8 @@
   "macro_f1": 0.720853,
   "macro_roc_auc": 0.992872,
   "figures": {
-    "confusion_matrix": "/Users/sameerkadam/Downloads/Projects/animal-species-classification-cnn/outputs/figures/resnet50_confusion_matrix.png",
-    "roc_auc": "/Users/sameerkadam/Downloads/Projects/animal-species-classification-cnn/outputs/figures/resnet50_roc_auc.png",
-    "training_curves": "/Users/sameerkadam/Downloads/Projects/animal-species-classification-cnn/outputs/figures/resnet50_training_curves.png"
+    "confusion_matrix": "outputs/figures/resnet50_confusion_matrix.png",
+    "roc_auc": "outputs/figures/resnet50_roc_auc.png",
+    "training_curves": "outputs/figures/resnet50_training_curves.png"
   }
 }

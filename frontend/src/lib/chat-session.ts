@@ -43,8 +43,14 @@ export const STARTERS = [
   'Where do axolotls live in the wild?',
 ]
 
-/** Backend limit (WILDLENS_CHAT_MAX_MESSAGES); older turns are dropped from the request. */
-export const MAX_HISTORY = 20
+/**
+ * Messages sent per request (the backend accepts up to 20 and forwards the last 10 to the LLM);
+ * older turns are dropped to save LLM tokens on the free tier.
+ */
+export const MAX_HISTORY = 10
+/** Earlier answers are clipped to this many characters in the request (the backend accepts
+ * any length for assistant turns, but long answers only cost tokens). */
+export const MAX_ASSISTANT_CHARS = 1500
 
 export const chatStore = createStore<ChatState>({ messages: [], context: null, busy: false })
 
@@ -88,10 +94,23 @@ export function describeChatError(err: unknown): { message: string; retryable: b
   }
 }
 
+const INLINE_SOURCES = /\n*\*\*Sources\*\*\n[\s\S]*?(?=\n\n_Retrieval-only answer|$)/
+
+/** An earlier answer as request history: inline "Sources" list removed, clipped at a word boundary. */
+export function historyContent(content: string, max = MAX_ASSISTANT_CHARS): string {
+  const text = content.replace(INLINE_SOURCES, '').trim()
+  if (text.length <= max) return text
+  let cut = text.slice(0, max - 2)
+  const space = cut.lastIndexOf(' ')
+  if (space > cut.length - 80) cut = cut.slice(0, space)
+  return `${cut.trimEnd()} …`
+}
+
 export function buildRequest(messages: ChatMsg[], context: ChatState['context']): ChatRequest {
   const history = messages
     .filter((m) => m.content.trim() && (m.role === 'user' || m.status === 'done' || m.status === 'stopped'))
-    .map((m) => ({ role: m.role, content: m.content }))
+    .map((m) => ({ role: m.role, content: m.role === 'assistant' ? historyContent(m.content) : m.content }))
+    .filter((m) => m.content)
     .slice(-MAX_HISTORY)
   // The request must start with a user turn.
   while (history.length && history[0]?.role !== 'user') history.shift()

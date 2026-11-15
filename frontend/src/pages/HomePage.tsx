@@ -8,9 +8,12 @@ import { Section } from '@/components/Section'
 import { StatRow, StatTile } from '@/components/StatTile'
 import { Button } from '@/components/ui/button'
 
-/** CC0 photograph from the knowledge base (Wikimedia Commons). */
+/**
+ * CC0 photograph from the knowledge base (Wikimedia Commons), committed as a resized 1280×848
+ * copy under `public/images/` so the home page works offline.
+ */
 const HERO = {
-  src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Red_Panda_%2824986761703%29.jpg/1280px-Red_Panda_%2824986761703%29.jpg',
+  src: '/images/hero-red-panda.jpg',
   alt: 'A red panda resting on a branch',
   image: {
     artist: 'Mathias Appel',
@@ -49,13 +52,13 @@ export function HomePage() {
         </div>
         <figure className="col-span-7">
           <div className="grain aspect-[3/2] overflow-hidden rounded bg-surface-sunken">
-            <img src={HERO.src} alt={HERO.alt} className="size-full object-cover" />
+            <img src={HERO.src} alt={HERO.alt} width={1280} height={848} className="size-full object-cover" />
           </div>
           <figcaption className="mt-3 flex items-baseline justify-between gap-6">
             <span className="text-small text-fg-secondary">
               Red panda, <ScientificName name="Ailurus fulgens" /> — Endangered
             </span>
-            <Attribution image={HERO.image} />
+            <Attribution image={HERO.image} resized />
           </figcaption>
         </figure>
       </Container>

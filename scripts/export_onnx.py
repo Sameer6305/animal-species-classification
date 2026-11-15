@@ -19,6 +19,7 @@ Usage (from repo root):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -145,6 +146,14 @@ def write_fc(model: nn.Module) -> None:
           f"{rel(FC_JSON_PATH)} ({FC_JSON_PATH.stat().st_size / 1e6:.2f} MB)")
 
 
+def file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def write_registry(int8_usable: bool | None, fp16_eval: dict | None = None,
                    int8_agreement: float | None = None) -> None:
     variants = {"fp32": {"onnx": rel(ONNX_PATH), "usable": True}}
@@ -166,6 +175,16 @@ def write_registry(int8_usable: bool | None, fp16_eval: dict | None = None,
         }
         if int8_agreement is not None:
             variants["int8"]["top1_agreement_with_fp32"] = int8_agreement
+    # Download metadata for scripts/download_models.sh: the SHA-256 of each exported file and a
+    # download URL (empty until the files are hosted; kept from the current registry on re-export).
+    old_variants = {}
+    if REGISTRY_PATH.exists():
+        for m in json.loads(REGISTRY_PATH.read_text()).get("models", []):
+            if m.get("id") == "resnet50":
+                old_variants = m.get("variants") or {}
+    for name, v in variants.items():
+        v["download_url"] = (old_variants.get(name) or {}).get("download_url", "")
+        v["sha256"] = file_sha256(PROJECT_ROOT / v["onnx"])
     registry = {
         "default": "resnet50",
         "models": [{

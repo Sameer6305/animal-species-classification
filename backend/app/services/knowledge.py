@@ -17,6 +17,11 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", s.lower())).strip()
 
 
+def normalize(s: str) -> str:
+    """Lower-case, punctuation to spaces, collapsed whitespace (the form KB names are matched in)."""
+    return _norm(s)
+
+
 def _plurals(name: str) -> List[str]:
     """Simple English plural forms of the last word ("brown bear" -> "brown bears")."""
     head, _, last = name.rpartition(" ")
@@ -103,16 +108,26 @@ class SpeciesKB:
             _norm(slug_or_label).replace(" ", "-")
         )
 
+    def match_spans(self, norm_text: str) -> List[Tuple[Dict[str, Any], int, int]]:
+        """(entry, start, end) for every KB name in already-normalised text (see ``normalize``),
+        longest names first, in order of appearance, not deduplicated."""
+        if not self._pattern or not norm_text:
+            return []
+        return [(self.by_slug[self._alias_map[m.group(1)]], m.start(1), m.end(1))
+                for m in self._pattern.finditer(norm_text)]
+
     def match_text(self, text: str) -> List[Dict[str, Any]]:
         """KB entries named in free text, longest names first, in order of appearance, deduplicated."""
-        if not self._pattern or not text:
-            return []
         out: List[Dict[str, Any]] = []
-        for m in self._pattern.finditer(_norm(text)):
-            e = self.by_slug[self._alias_map[m.group(1)]]
+        for e, _, _ in self.match_spans(_norm(text or "")):
             if e not in out:
                 out.append(e)
         return out
+
+    def exact_alias(self, name: Optional[str]) -> Optional[Dict[str, Any]]:
+        """KB entry whose alias is exactly ``name`` (e.g. a Wikipedia title), else None."""
+        slug = self._alias_map.get(_norm(name or ""))
+        return self.by_slug[slug] if slug else None
 
     def search(self, q: Optional[str] = None, group: Optional[str] = None,
                status: Optional[str] = None) -> Iterable[Dict[str, Any]]:

@@ -139,3 +139,49 @@ def test_predict_and_explain_include_slugs(client):
         assert labels <= set(j["slugs"]), path
         for label, slug in j["slugs"].items():
             assert client.get(f"/api/species/{slug}").json()["label"] == label
+
+
+def _all_url_fields(obj, key=""):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from _all_url_fields(v, k)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _all_url_fields(v, key)
+    elif key.endswith("url") and obj is not None:
+        yield key, obj
+
+
+def test_kb_urls_are_all_http_or_https():
+    """L2: every *url field in the committed KB is an absolute http(s) URL (links in the UI)."""
+    import json
+    import re
+
+    from app.config import REPO_ROOT
+
+    path = REPO_ROOT / "data" / "species_kb.json"
+    if not path.is_file():
+        pytest.skip("data/species_kb.json not built")
+    urls = list(_all_url_fields(json.loads(path.read_text(encoding="utf-8"))))
+    assert len(urls) > 300
+    bad = [(k, u) for k, u in urls if not re.match(r"^https?://[^\s/]+", u)]
+    assert bad == []
+
+
+def test_build_script_drops_non_http_urls():
+    import importlib.util
+
+    from app.config import REPO_ROOT
+
+    spec = importlib.util.spec_from_file_location("build_species_kb", REPO_ROOT / "scripts" / "build_species_kb.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    entry = {"wikipedia_url": "https://en.wikipedia.org/wiki/Koala",
+             "image": {"license_url": "javascript:alert(1)", "source_url": "data:text/html,x",
+                       "url": "//upload.wikimedia.org/x.jpg", "thumb_url": "http://ok.example/t.jpg", "artist": "javascript:"},
+             "iucn_status": {"source_url": None}}
+    out = mod.sanitize_urls(entry)
+    assert out["wikipedia_url"] == "https://en.wikipedia.org/wiki/Koala"
+    assert out["image"] == {"license_url": None, "source_url": None, "url": None,
+                            "thumb_url": "http://ok.example/t.jpg", "artist": "javascript:"}
+    assert out["iucn_status"] == {"source_url": None}

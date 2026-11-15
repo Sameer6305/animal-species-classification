@@ -2,6 +2,7 @@ import { BookOpen, RotateCcw, SquarePen, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
+import { Attribution } from '@/components/Attribution'
 import { ChatComposer } from '@/components/chat/ChatComposer'
 import { ChatMessage } from '@/components/chat/ChatMessage'
 import { Container } from '@/components/layout/Container'
@@ -194,6 +195,7 @@ function ContextCard({ slug, name }: { slug: string; name: string }) {
           <p className="text-caption text-fg-muted">Follow-up questions are about this animal.</p>
         </div>
       </div>
+      {src && row?.image && <Attribution image={row.image} resized className="mt-3 truncate" />}
     </div>
   )
 }

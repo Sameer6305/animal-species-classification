@@ -136,6 +136,25 @@ def clean_url(u: Optional[str]) -> Optional[str]:
     return u.split("?utm_", 1)[0] if u else u
 
 
+def http_url(u: Any) -> Optional[str]:
+    """``u`` if it is an absolute http(s) URL, else None (no javascript:, data:, relative, ...)."""
+    if not isinstance(u, str):
+        return None
+    u = u.strip()
+    return u if re.match(r"(?i)^https?://[^\s/]+", u) else None
+
+
+def sanitize_urls(obj: Any) -> Any:
+    """Recursively null every ``*url`` field that is not an http(s) URL (licence/source links come
+    from Commons extmetadata and other third-party data, rendered as links by the frontend)."""
+    if isinstance(obj, dict):
+        return {k: (http_url(v) if k.endswith("url") and v is not None else sanitize_urls(v))
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [sanitize_urls(v) for v in obj]
+    return obj
+
+
 def strip_html(s: Optional[str]) -> Optional[str]:
     if not s:
         return None
@@ -474,7 +493,7 @@ def main() -> int:
     entries = []
     for i, label in enumerate(args.only or classes, 1):
         print(f"[{i:2d}/{len(args.only or classes)}] {label}", flush=True)
-        entries.append(build_entry(f, label, overrides[label], acc, counts, warnings))
+        entries.append(sanitize_urls(build_entry(f, label, overrides[label], acc, counts, warnings)))
 
     if args.only:
         print(json.dumps(entries, indent=2, ensure_ascii=False))

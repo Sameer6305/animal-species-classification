@@ -1,10 +1,15 @@
 """Grounding for the Field Guide chat (RAG-lite).
 
-Order: (1) the prediction/species context sent by the client, (2) KB animals named in the
-latest user message, (3) a live lookup for any other animal: Wikipedia search ->
-Wikidata (taxon name P225, IUCN status P141) -> iNaturalist (is it an animal? observation
-count, common name). Earlier user messages are scanned for KB animals when the latest one
-names none (follow-up questions such as "how long do they live?").
+Subjects of the latest user message are resolved first and take priority over the page
+context: (1) KB animals named in it — unless the name is part of a longer noun phrase
+("snow leopard", "killer whale"), in which case the full phrase is looked up live and wins
+if Wikipedia confirms it; (2) a live lookup for other animals: Wikipedia search -> Wikidata
+(taxon name P225, IUCN status P141) -> iNaturalist (is it an animal? observation count,
+common name). "X vs Y" / "X and Y" questions are split so each side is resolved (at most
+``MAX_SUBJECTS``). (3) The prediction/species context sent by the client is added when the
+question names fewer than two animals. (4) A follow-up that names nothing ("are they
+endangered?") reuses the subjects of the most recent earlier user message that had any,
+including live ones (re-resolved; live results are cached).
 
 All outbound requests use the shared ``httpx.AsyncClient`` (generic User-Agent) and a
 short timeout; failures degrade to "no live sources" instead of failing the chat.
@@ -20,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-from app.services.knowledge import SpeciesKB
+from app.services.knowledge import SpeciesKB, normalize
 
 log = logging.getLogger("wildlens.chat")
 
@@ -53,7 +58,25 @@ all much many very really just like than vs versus compare between eat eats eati
 lifespan habitat diet found find big large small size long fast speed weight heavy tall old age species animal
 animals facts fact info information interesting fun kind kinds type types status endangered conservation it's
 what's whats where's dangerous friendly pet pets baby babies called name names do don't doesn't anything something
+get gets got getting wild wilderness nature natural world earth usually typically often normally generally need
+needs make makes go goes use uses true actually mean means difference differences different similar same alike
+better best worse worst bigger biggest smaller smallest larger largest faster fastest slower slowest stronger
+strongest heavier heaviest taller tallest longer longest older oldest cute scary smart intelligent clever hunt hunts
+hunting hunted prey catch catches attack attacks chase chases fight fights kill kills sleep sleeps sleeping food foods
+eaten feed feeds feeding drink drinks threatened extinct extinction population populations left remain remaining still
+today now ever survive survives breed breeds breeding mate mates mating young offspring lay lays eggs egg born birth
+weigh weighs grow grows run runs swim swims fly flies climb climbs see sees hear smell come comes get each other one
+ones both either neither such well good bad way ways time times day days year years number numbers people humans human
+someone anyone why's how's who's they're there's isn't aren't wasn't weren't can't won't compared comparison similarities
+male males female females adult adults juvenile juveniles wild-caught captive zoo zoos
 """.split())
+
+# Pronouns / ellipsis that mark a follow-up about the previous subject ("are they endangered?").
+ANAPHORA = set("they them their theirs it its it's this that these those he she his her both ones".split())
+MAX_SUBJECTS = 3
+# Separators between animals in one question ("lion vs tiger", "sea lion and harbor seal").
+SEPARATOR_RE = re.compile(r"\b(?:vs|versus|and|or|than|compared to|compared with|between|with|plus)\b")
+_PUNCT_SPLIT_RE = re.compile(r"[,;/&?!:()\[\]]+|\.(?:\s|$)")
 
 PROJECT_RE = re.compile(
     r"\b(wildlens|this (project|app|site|model)|your (model|training|dataset)|the model|resnet|accuracy|"
@@ -111,10 +134,38 @@ class Grounding:
 
 
 def extract_query(text: str, max_words: int = 6) -> str:
-    """Keyword query for Wikipedia search: drop question words/stopwords."""
+    """Keyword query for Wikipedia search: drop question words/stopwords.
+
+    Returns "" unless at least one remaining word has 3+ letters, so leftovers such as "get"
+    or "wild" never trigger a live search on their own (they are stopwords), and neither do
+    stray 2-letter tokens.
+    """
     words = re.findall(r"[A-Za-z][A-Za-z\-']*", text)
     kept = [w for w in words if w.lower() not in STOPWORDS and len(w) > 1]
+    if not any(len(w) >= 3 for w in kept):
+        return ""
     return " ".join(kept[:max_words])
+
+
+def _singular_forms(phrase: str) -> List[str]:
+    """``phrase`` plus naive singulars of its last word ("arctic foxes" -> "arctic fox")."""
+    out = [phrase]
+    if phrase.endswith("ies"):
+        out.append(phrase[:-3] + "y")
+    if phrase.endswith("es"):
+        out.append(phrase[:-2])
+    if phrase.endswith("s"):
+        out.append(phrase[:-1])
+    return out
+
+
+def _phrase_confirmed(phrase: str, live: Dict[str, Any]) -> bool:
+    """True if the live page is really about ``phrase``: the Wikipedia title, the first sentence
+    of the extract (e.g. "The orca ..., or killer whale, ...") or the iNaturalist common name
+    contains it."""
+    hay = [normalize(live.get("title") or ""), normalize(_first_sentences(live.get("extract") or "", 1)),
+           normalize(((live.get("inat") or {}).get("common_name")) or "")]
+    return any(f" {form} " in f" {h} " for form in _singular_forms(phrase) for h in hay if h)
 
 
 def _first_sentences(text: str, n: int) -> str:
@@ -155,47 +206,114 @@ class Retriever:
         user_msgs = [m["content"] for m in messages if m["role"] == "user"]
         latest = user_msgs[-1] if user_msgs else ""
 
-        entries: List[Dict[str, Any]] = []
         ctx = (context or {}).get("species_slug") or (context or {}).get("label")
         ctx_entry = self.kb.resolve(ctx) if ctx else None
-        if ctx_entry:
-            entries.append(ctx_entry)
-        named = self.kb.match_text(latest)
-        for e in named:
-            if e not in entries:
-                entries.append(e)
 
-        live: Optional[Dict[str, Any]] = None
-        if not named and self.live_lookup:
-            q = extract_query(latest)
-            if q:
-                g.query = q
-                try:
-                    live = await asyncio.wait_for(self._live(q), timeout=self.timeout_s)
-                except (asyncio.TimeoutError, httpx.HTTPError, ValueError, KeyError) as exc:
-                    log.info("live lookup failed for %r: %s", q, type(exc).__name__)
-                    g.retrieval = "unavailable"
-
-        if not entries and live is None:
+        g.query = extract_query(latest) or None
+        named, failed = await self._resolve(latest)
+        cands: List[Tuple[str, Dict[str, Any]]] = list(named)
+        if ctx_entry and len(named) < 2 and ("kb", ctx_entry) not in cands:
+            cands.append(("kb", ctx_entry))  # page context, after the animals the question names
+        if not cands and (not g.query or _is_followup(latest)):
+            # Follow-up naming no animal: reuse the subjects of the latest earlier turn that had any.
             for prev in reversed(user_msgs[:-1]):
-                found = self.kb.match_text(prev)
+                found, prev_failed = await self._resolve(prev)
+                failed = failed or prev_failed
                 if found:
-                    entries.extend(found)
+                    cands = found
                     break
 
-        for e in entries[:2]:
-            self._add_kb(g, e)
-        if live is not None:
-            self._add_live(g, live)
-        if g.subjects:
-            if live is not None:
-                g.retrieval = "kb+live" if entries else "live"
+        for kind, d in cands[:MAX_SUBJECTS]:
+            if kind == "kb":
+                self._add_kb(g, d)
             else:
-                g.retrieval = "kb"
+                self._add_live(g, d)
+        kinds = {k for k, _ in cands[:MAX_SUBJECTS]}
+        if kinds == {"kb"}:
+            g.retrieval = "kb"
+        elif kinds == {"live"}:
+            g.retrieval = "live"
+        elif kinds:
+            g.retrieval = "kb+live"
+        elif failed:
+            g.retrieval = "unavailable"
         if PROJECT_RE.search(latest):
             g.project = True
             g.add_source("WildLens project facts", None, self._project_text(), "project")
         return g
+
+    async def _resolve(self, text: str) -> Tuple[List[Tuple[str, Dict[str, Any]]], bool]:
+        """Animals named in ``text`` in order of appearance, as ("kb", entry) / ("live", page) pairs
+        (deduplicated, at most ``MAX_SUBJECTS``), and whether a live lookup failed."""
+        if not text.strip():
+            return [], False
+        norm = normalize(_PUNCT_SPLIT_RE.sub(" and ", text))
+        spans = self.kb.match_spans(norm)
+        # Segment boundaries: separator words that are not inside a KB name ("moths and butterflies").
+        seps = [m for m in SEPARATOR_RE.finditer(norm)
+                if not any(s < m.end() and m.start() < e for _, s, e in spans)]
+        bounds = [0] + [x for m in seps for x in (m.start(), m.end())] + [len(norm)]
+        segments = [(bounds[i], bounds[i + 1]) for i in range(0, len(bounds), 2)]
+
+        # slot -> ("kb", entry) | ("phrase", (phrase, entry)) | ("query", q), in text order
+        slots: List[Tuple[str, Any]] = []
+        for a, b in segments:
+            seg_spans = [(e, s, t) for e, s, t in spans if a <= s < b]
+            if not seg_spans:
+                q = extract_query(norm[a:b])
+                if q and self.live_lookup:
+                    slots.append(("query", q))
+                continue
+            prev_end = a
+            for e, s, t in seg_spans:
+                mods = _modifiers(norm[prev_end:s])
+                if mods and self.live_lookup:
+                    slots.append(("phrase", (" ".join(mods + [norm[s:t]]), e)))
+                else:
+                    slots.append(("kb", e))
+                prev_end = t
+
+        live_qs = [v if k == "query" else v[0] for k, v in slots if k in ("query", "phrase")]
+        results: Dict[str, Optional[Dict[str, Any]]] = {}
+        failed = False
+        if live_qs:
+            uniq = list(dict.fromkeys(live_qs))[:MAX_SUBJECTS + 1]
+            outs = await asyncio.gather(*(self._live_safe(q) for q in uniq))
+            for q, (res, err) in zip(uniq, outs):
+                results[q] = res
+                failed = failed or err
+
+        out: List[Tuple[str, Dict[str, Any]]] = []
+        seen: set = set()
+        for kind, v in slots:
+            if kind == "kb":
+                item: Optional[Tuple[str, Dict[str, Any]]] = ("kb", v)
+            elif kind == "phrase":
+                phrase, entry = v
+                live = results.get(phrase)
+                item = ("live", live) if live and _phrase_confirmed(phrase, live) else ("kb", entry)
+            else:
+                live = results.get(v)
+                item = ("live", live) if live else None
+            if item is None:
+                continue
+            if item[0] == "live":  # a live page that *is* a KB animal -> use the richer KB entry
+                kb_e = self.kb.exact_alias(item[1].get("title"))
+                if kb_e:
+                    item = ("kb", kb_e)
+            key = item[1].get("slug") if item[0] == "kb" else "live:" + str(item[1].get("qid") or item[1].get("title"))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(item)
+        return out[:MAX_SUBJECTS], failed
+
+    async def _live_safe(self, q: str) -> Tuple[Optional[Dict[str, Any]], bool]:
+        try:
+            return await asyncio.wait_for(self._live(q), timeout=self.timeout_s), False
+        except (asyncio.TimeoutError, httpx.HTTPError, ValueError, KeyError) as exc:
+            log.info("live lookup failed for %r: %s", q, type(exc).__name__)
+            return None, True
 
     # ------------------------------------------------------------ KB
     def _add_kb(self, g: Grounding, e: Dict[str, Any]) -> None:
@@ -351,6 +469,24 @@ class Retriever:
             "animals outside the 80 classes can be misclassified; low-confidence predictions (top-1 < 50%) are "
             "flagged. Species facts come from Wikipedia, Wikidata, iNaturalist and GBIF."
         )
+
+
+def _modifiers(before: str, max_words: int = 2) -> List[str]:
+    """Words directly before a KB name that make it a longer noun phrase ("snow" in "snow leopard",
+    "great white" in "great white shark"): trailing non-stopword alphabetic words of 3+ letters."""
+    mods: List[str] = []
+    for w in reversed(before.split()):
+        if w in STOPWORDS or len(w) < 3 or not w.isalpha() or SEPARATOR_RE.fullmatch(w):
+            break
+        mods.insert(0, w)
+        if len(mods) >= max_words:
+            break
+    return mods
+
+
+def _is_followup(text: str) -> bool:
+    words = {w.lower() for w in re.findall(r"[A-Za-z][A-Za-z']*", text)}
+    return bool(words & ANAPHORA)
 
 
 def _claim_values(claims: Dict[str, Any], pid: str, ranked: bool = False) -> List[Any]:

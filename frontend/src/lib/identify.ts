@@ -50,7 +50,7 @@ export function describeIdentifyError(err: unknown): IdentifyError {
         return {
           title: 'The model is not loaded',
           message:
-            'The server is running but the ONNX model file is missing. Generate it with scripts/export_onnx.py (see backend/README.md) and restart the server.',
+            'The server is running but the ONNX model file is missing. Run scripts/download_models.sh from the repository root (or export it from the training checkpoint with scripts/export_onnx.py, see backend/README.md), then restart the server.',
           detail,
         }
       default:

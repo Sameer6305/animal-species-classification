@@ -9,19 +9,25 @@
       "variants": {
         "fp32": {
           "onnx": "models/resnet50.onnx",
-          "usable": true
+          "usable": true,
+          "download_url": "",
+          "sha256": "e7eb530866a440ffa758c5846ad8e5f8298257c3794bb9a715c20fe6984ab016"
         },
         "fp16": {
           "onnx": "models/resnet50.fp16.onnx",
           "usable": true,
           "note": "float16 weights/activations, float32 inputs/outputs (Cast at the boundary); usable only if test-set top-1 agreement with fp32 >= 99% (see eval file)",
-          "top1_agreement_with_fp32": 0.9997360084477297
+          "top1_agreement_with_fp32": 0.9997360084477297,
+          "download_url": "",
+          "sha256": "2de7e768484fa45a5f6d1a2291ce316659b5447bf7c00f4b05f0a687d3202688"
         },
         "int8": {
           "onnx": "models/resnet50.int8.onnx",
           "usable": false,
           "note": "int8 dynamic quantization (uint8 per-tensor weights; ConvInteger/MatMulInteger ops); usable only if test-set top-1 agreement with fp32 >= 99% (see eval file)",
-          "top1_agreement_with_fp32": 0.9326821541710665
+          "top1_agreement_with_fp32": 0.9326821541710665,
+          "download_url": "",
+          "sha256": "25fc61499570f6906c69ec0bae8b6a42071cbbcd8eb3f58310848f04f1b85688"
         }
       },
       "inputs": {

@@ -102,6 +102,8 @@ export interface ExplainResponse {
   predicted: Prediction
   predictions: Prediction[]
   low_confidence: boolean
+  /** Added before Phase 5; optional so older backends still type-check. */
+  low_confidence_threshold?: number
   method: string
   colormap: Colormap | string
   width: number
