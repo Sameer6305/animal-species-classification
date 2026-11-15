@@ -46,7 +46,13 @@ All routes are under `/api`. Interactive docs: `/docs` (Swagger UI), `/redoc`, s
 | GET | `/api/figures/{name}` | One PNG. Only plain `*.png` names that exist in the directory listing are served; anything else is 404. |
 | GET | `/api/species` | The 80 classes in model order: slug, label, common/scientific name, `is_group`, animal group, thumbnail, IUCN code/label, model per-class accuracy. Query: `q` (substring of names/taxonomy), `group` (`Mammal`, `Bird`, `Reptile`, `Amphibian`, `Fish`, `Insect`, `Arachnid`, `Crustacean`, `Mollusc`, `Other`), `status` (IUCN code, or `NA` = no species-level status). |
 | GET | `/api/species/{slug}` | Full KB entry (summary, taxonomy, image + licence/attribution, IUCN status + source, GBIF taxonKey, iNaturalist id/observations, model stats). 404 for unknown slugs. |
+| GET | `/api/species-images` | Phase 4: slug → URLs of locally cached photos (`hero` ~1280 px, `card` ~500 px) from `scripts/cache_species_images.py`; `{"count": 0, "images": {}}` when the cache is absent (clients fall back to Commons). |
+| GET | `/api/species-images/{name}` | One cached photo. Only well-formed `<slug>-hero|card.<ext>` names listed in the cache manifest and present on disk are served; anything else is 404. |
 | POST | `/api/chat` | JSON `{"messages": [{"role": "user"\|"assistant", "content": "..."}], "context": {"species_slug" or "label"}}` → `text/event-stream`. See [Chat](#chat-field-guide). |
+
+`GET /api/species?extended=true` (Phase 4, used by the Species Atlas) adds `rank`, `image` (with
+attribution), `inaturalist_observations` and `test_images` to each row; without it the row shape is
+unchanged.
 
 `/api/predict` and `/api/explain` also return `slugs` (`{label: slug}`) so the frontend can link
 each prediction to its species page (additive; existing fields unchanged).
@@ -95,6 +101,7 @@ Phase 2 (chat and knowledge base):
 | `WILDLENS_LLM_CONNECT_TIMEOUT_S` / `WILDLENS_LLM_READ_TIMEOUT_S` | `5` / `20` | Per-request LLM timeouts. |
 | `WILDLENS_CHAT_LIVE_LOOKUP` | `true` | Look up animals outside the 80 classes online. |
 | `WILDLENS_SPECIES_KB_PATH` | `data/species_kb.json` | Knowledge base file. |
+| `WILDLENS_SPECIES_IMAGES_DIR` | `data/species_images` | Offline photo cache (Phase 4, gitignored); build with `python3 scripts/cache_species_images.py`. |
 
 Secrets go in `backend/.env` (gitignored; template in `backend/.env.example`) or the process
 environment. Keys are never logged or returned by the API.

@@ -23,6 +23,8 @@ interface HeatmapViewerProps {
   /** e.g. the `method` string from /api/explain. */
   method?: string
   defaultOpacity?: number
+  /** CSS length: cap the photo's height without cropping (portrait photos get a narrower frame). */
+  maxImageHeight?: string
   className?: string
 }
 
@@ -36,6 +38,7 @@ export function HeatmapViewer({
   caption,
   method,
   defaultOpacity = 0.8,
+  maxImageHeight,
   className,
 }: HeatmapViewerProps) {
   const reduce = useReducedMotion()
@@ -61,8 +64,11 @@ export function HeatmapViewer({
   return (
     <figure className={cn('w-full', className)}>
       <div
-        className="relative overflow-hidden rounded bg-surface-sunken"
-        style={{ aspectRatio: `${width} / ${height}` }}
+        className="relative mx-auto overflow-hidden rounded bg-surface-sunken"
+        style={{
+          aspectRatio: `${width} / ${height}`,
+          ...(maxImageHeight ? { maxWidth: `calc(${maxImageHeight} * ${width / height})` } : {}),
+        }}
       >
         <img src={imageSrc} alt={alt} className="absolute inset-0 size-full object-cover" />
         <AnimatePresence>

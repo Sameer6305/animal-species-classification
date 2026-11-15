@@ -1,6 +1,6 @@
 import * as SelectPrimitive from '@radix-ui/react-select'
 import { Check, ChevronDown } from 'lucide-react'
-import { forwardRef, type ComponentPropsWithoutRef, type ElementRef } from 'react'
+import { forwardRef, type ComponentPropsWithoutRef, type ElementRef, type ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -59,8 +59,11 @@ SelectLabel.displayName = 'SelectLabel'
 
 export const SelectItem = forwardRef<
   ElementRef<typeof SelectPrimitive.Item>,
-  ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(({ className, children, ...props }, ref) => (
+  ComponentPropsWithoutRef<typeof SelectPrimitive.Item> & {
+    /** Secondary text (e.g. a count) shown in the list but not in the trigger. */
+    hint?: ReactNode
+  }
+>(({ className, children, hint, ...props }, ref) => (
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
@@ -75,6 +78,7 @@ export const SelectItem = forwardRef<
       </SelectPrimitive.ItemIndicator>
     </span>
     <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    {hint != null && <span className="tabular ml-auto pl-6 text-caption text-fg-muted">{hint}</span>}
   </SelectPrimitive.Item>
 ))
 SelectItem.displayName = 'SelectItem'

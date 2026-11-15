@@ -5,13 +5,16 @@ Outputs (in models/):
   resnet50.onnx        FP32, inputs `input` (N,3,224,224); outputs
                        `logits` (N,80) and `features` (N,2048,7,7) from layer4
   resnet50.int8.onnx   optional int8 dynamic-quantized variant (--quantize)
+  resnet50.fp16.onnx   optional FP16 variant (--fp16 / --fp16-only): weights and
+                       activations in float16, inputs/outputs kept float32
   resnet50_fc.npz      fc weight (80,2048) / bias (80,) float32 for CAM
   resnet50_fc.json     same, as JSON (flat row-major arrays) for the browser
   classes.json         80 class names in training index order
   registry.json        model registry
 
 Usage (from repo root):
-    venv/bin/python scripts/export_onnx.py [--quantize]
+    venv/bin/python scripts/export_onnx.py [--quantize] [--fp16]
+    venv/bin/python scripts/export_onnx.py --fp16-only   # convert the existing FP32 file only
 """
 from __future__ import annotations
 
@@ -26,7 +29,7 @@ import torch.nn as nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from model_common import (  # noqa: E402
-    CLASSES_PATH, EVAL_PATH, FC_JSON_PATH, FC_NPZ_PATH, MODELS_DIR, ONNX_INT8_PATH,
+    CLASSES_PATH, EVAL_PATH, FC_JSON_PATH, FC_NPZ_PATH, MODELS_DIR, ONNX_FP16_PATH, ONNX_INT8_PATH,
     ONNX_PATH, PROJECT_ROOT, REGISTRY_PATH, build_torch_model, class_list,
 )
 from preprocessing import DEFAULT_MEAN, DEFAULT_SIZE, DEFAULT_STD  # noqa: E402
@@ -88,6 +91,44 @@ def export_int8() -> None:
     print(f"wrote {rel(ONNX_INT8_PATH)} ({ONNX_INT8_PATH.stat().st_size / 1e6:.1f} MB)")
 
 
+def _toposort(graph) -> None:
+    """Reorder graph.node topologically in place (stable for already-sorted nodes)."""
+    available = {i.name for i in graph.input} | {i.name for i in graph.initializer} | {""}
+    pending = list(graph.node)
+    ordered = []
+    while pending:
+        rest = []
+        for n in pending:
+            if all(i in available for i in n.input):
+                ordered.append(n)
+                available.update(n.output)
+            else:
+                rest.append(n)
+        if len(rest) == len(pending):
+            raise RuntimeError("graph has a cycle or a missing input")
+        pending = rest
+    del graph.node[:]
+    graph.node.extend(ordered)
+
+
+def export_fp16() -> None:
+    """FP32 ONNX -> FP16 weights/activations with float32 graph inputs/outputs.
+
+    Uses onnxruntime's bundled float16 converter (no extra dependency). keep_io_types
+    inserts Cast nodes at the graph boundary, so callers still feed/receive float32
+    and the browser code does not change.
+    """
+    import onnx
+    from onnxruntime.transformers.float16 import convert_float_to_float16
+
+    model = onnx.load(str(ONNX_PATH))
+    fp16 = convert_float_to_float16(model, keep_io_types=True, disable_shape_infer=False)
+    _toposort(fp16.graph)  # the converter appends the boundary Cast nodes at the end
+    onnx.checker.check_model(fp16)
+    onnx.save(fp16, str(ONNX_FP16_PATH))
+    print(f"wrote {rel(ONNX_FP16_PATH)} ({ONNX_FP16_PATH.stat().st_size / 1e6:.1f} MB)")
+
+
 def write_fc(model: nn.Module) -> None:
     w = model.fc.weight.detach().cpu().numpy().astype(np.float32)
     b = model.fc.bias.detach().cpu().numpy().astype(np.float32)
@@ -104,8 +145,18 @@ def write_fc(model: nn.Module) -> None:
           f"{rel(FC_JSON_PATH)} ({FC_JSON_PATH.stat().st_size / 1e6:.2f} MB)")
 
 
-def write_registry(int8_usable: bool | None) -> None:
+def write_registry(int8_usable: bool | None, fp16_eval: dict | None = None,
+                   int8_agreement: float | None = None) -> None:
     variants = {"fp32": {"onnx": rel(ONNX_PATH), "usable": True}}
+    if ONNX_FP16_PATH.exists():
+        variants["fp16"] = {
+            "onnx": rel(ONNX_FP16_PATH),
+            "usable": bool((fp16_eval or {}).get("usable")),
+            "note": "float16 weights/activations, float32 inputs/outputs (Cast at the boundary); usable only if "
+                    "test-set top-1 agreement with fp32 >= 99% (see eval file)",
+        }
+        if fp16_eval and "top1_agreement_with_fp32" in fp16_eval:
+            variants["fp16"]["top1_agreement_with_fp32"] = fp16_eval["top1_agreement_with_fp32"]
     if ONNX_INT8_PATH.exists():
         variants["int8"] = {
             "onnx": rel(ONNX_INT8_PATH),
@@ -113,6 +164,8 @@ def write_registry(int8_usable: bool | None) -> None:
             "note": "int8 dynamic quantization (uint8 per-tensor weights; ConvInteger/MatMulInteger ops); usable only if "
                     "test-set top-1 agreement with fp32 >= 99% (see eval file)",
         }
+        if int8_agreement is not None:
+            variants["int8"]["top1_agreement_with_fp32"] = int8_agreement
     registry = {
         "default": "resnet50",
         "models": [{
@@ -151,9 +204,18 @@ def write_registry(int8_usable: bool | None) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--quantize", action="store_true", help="also write int8 variant")
+    ap.add_argument("--fp16", action="store_true", help="also write FP16 variant (float32 IO)")
+    ap.add_argument("--fp16-only", action="store_true",
+                    help="only convert the existing models/resnet50.onnx to FP16 (no checkpoint needed)")
     args = ap.parse_args()
 
     MODELS_DIR.mkdir(exist_ok=True)
+    if args.fp16_only:
+        if not ONNX_PATH.exists():
+            sys.exit(f"{rel(ONNX_PATH)} not found; run without --fp16-only first")
+        export_fp16()
+        refresh_registry_variants()
+        return
     model, ckpt = build_torch_model()
     print(f"checkpoint epoch={ckpt['epoch']} best_val_acc={ckpt['best_val_acc']:.4f}")
 
@@ -166,12 +228,16 @@ def main() -> None:
     write_fc(model)
     if args.quantize:
         export_int8()
+    if args.fp16:
+        export_fp16()
+    refresh_registry_variants()
 
-    # int8 usability is decided by scripts/evaluate_onnx.py, which rewrites the registry.
-    usable = None
-    if EVAL_PATH.exists():
-        usable = json.loads(EVAL_PATH.read_text()).get("int8", {}).get("usable")
-    write_registry(usable)
+
+def refresh_registry_variants() -> None:
+    # Variant usability is decided by scripts/evaluate_onnx.py, which rewrites the registry.
+    ev = json.loads(EVAL_PATH.read_text()) if EVAL_PATH.exists() else {}
+    write_registry(ev.get("int8", {}).get("usable"), ev.get("fp16"),
+                   ev.get("int8", {}).get("top1_agreement_with_fp32"))
 
 
 if __name__ == "__main__":

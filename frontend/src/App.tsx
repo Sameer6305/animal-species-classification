@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { createBrowserRouter, RouterProvider, type RouteObject } from 'react-router-dom'
 
 import { AppShell } from '@/components/layout/AppShell'
@@ -8,18 +8,67 @@ import { NotFoundPage } from '@/pages/NotFoundPage'
 import { PlaceholderPage } from '@/pages/PlaceholderPage'
 import { PLACEHOLDERS } from '@/pages/routes'
 
+/* Route-level code splitting: each page is its own chunk; Leaflet and onnxruntime-web are
+   further split inside their pages and load only when needed. */
+const IdentifyPage = lazy(() => import('@/pages/IdentifyPage'))
+const AtlasPage = lazy(() => import('@/pages/AtlasPage'))
+const SpeciesProfilePage = lazy(() => import('@/pages/SpeciesProfilePage'))
+const AskPage = lazy(() => import('@/pages/AskPage'))
+
 /** Dev-only component preview; the import is dropped from production bundles. */
 const SHOW_UI_PREVIEW = import.meta.env.DEV || import.meta.env.VITE_UI_PREVIEW === 'true'
 const UiPreview = SHOW_UI_PREVIEW ? lazy(() => import('@/pages/dev/UiPreview')) : null
 
 const p = PLACEHOLDERS
 
+function Page({ children, label = 'Loading page' }: { children: ReactNode; label?: string }) {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[60vh] justify-center py-32">
+          <Spinner label={label} />
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  )
+}
+
 const children: RouteObject[] = [
   { index: true, element: <HomePage /> },
-  { path: 'identify', element: <PlaceholderPage {...p.identify!} /> },
-  { path: 'species', element: <PlaceholderPage {...p.species!} /> },
-  { path: 'species/:slug', element: <PlaceholderPage {...p.speciesProfile!} /> },
-  { path: 'ask', element: <PlaceholderPage {...p.ask!} /> },
+  {
+    path: 'identify',
+    element: (
+      <Page>
+        <IdentifyPage />
+      </Page>
+    ),
+  },
+  {
+    path: 'species',
+    element: (
+      <Page>
+        <AtlasPage />
+      </Page>
+    ),
+  },
+  {
+    path: 'species/:slug',
+    element: (
+      <Page>
+        <SpeciesProfilePage />
+      </Page>
+    ),
+  },
+  {
+    path: 'ask',
+    element: (
+      <Page>
+        <AskPage />
+      </Page>
+    ),
+  },
   { path: 'research', element: <PlaceholderPage {...p.research!} /> },
   { path: 'about', element: <PlaceholderPage {...p.about!} /> },
   ...(UiPreview
@@ -27,15 +76,9 @@ const children: RouteObject[] = [
         {
           path: '__ui',
           element: (
-            <Suspense
-              fallback={
-                <div className="flex justify-center py-32">
-                  <Spinner label="Loading preview" />
-                </div>
-              }
-            >
+            <Page label="Loading preview">
               <UiPreview />
-            </Suspense>
+            </Page>
           ),
         },
       ]

@@ -362,3 +362,31 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Leaflet (occurrence map, lazy-loaded): blend the controls into the site tokens.
+   Selectors are deliberately more specific than leaflet.css, which loads later. */
+.wildlens-map.leaflet-container {
+  background: rgb(var(--surface-sunken));
+  font-family: inherit;
+}
+.wildlens-map.leaflet-container .leaflet-control-attribution {
+  background: rgb(var(--bg) / 0.88);
+  color: rgb(var(--fg-muted));
+  font-size: 0.6875rem;
+  padding: 1px 6px;
+}
+.wildlens-map.leaflet-container .leaflet-control-attribution a {
+  color: rgb(var(--fg-secondary));
+}
+.wildlens-map.leaflet-container .leaflet-bar {
+  border: 1px solid rgb(var(--border-strong));
+  box-shadow: none;
+}
+.wildlens-map.leaflet-container .leaflet-bar a {
+  background: rgb(var(--surface-raised));
+  color: rgb(var(--fg));
+  border-bottom-color: rgb(var(--border));
+}
+.wildlens-map.leaflet-container .leaflet-bar a:hover {
+  background: rgb(var(--surface-sunken));
+}

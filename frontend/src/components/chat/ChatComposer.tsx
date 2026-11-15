@@ -13,6 +13,9 @@ interface ChatComposerProps {
   placeholder?: string
   maxLength?: number
   suggestions?: string[]
+  /** Pre-filled text (e.g. a question handed over from Identify); remount with a new `key` to change it. */
+  initialValue?: string
+  autoFocus?: boolean
   className?: string
 }
 
@@ -24,9 +27,11 @@ export function ChatComposer({
   placeholder = 'Ask about any animal — habitat, diet, behaviour, conservation…',
   maxLength = 2000,
   suggestions = [],
+  initialValue = '',
+  autoFocus = false,
   className,
 }: ChatComposerProps) {
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(initialValue)
   const ref = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -84,6 +89,7 @@ export function ChatComposer({
           rows={1}
           value={value}
           disabled={disabled}
+          autoFocus={autoFocus}
           placeholder={placeholder}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={onKeyDown}

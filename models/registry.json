@@ -11,6 +11,12 @@
           "onnx": "models/resnet50.onnx",
           "usable": true
         },
+        "fp16": {
+          "onnx": "models/resnet50.fp16.onnx",
+          "usable": true,
+          "note": "float16 weights/activations, float32 inputs/outputs (Cast at the boundary); usable only if test-set top-1 agreement with fp32 >= 99% (see eval file)",
+          "top1_agreement_with_fp32": 0.9997360084477297
+        },
         "int8": {
           "onnx": "models/resnet50.int8.onnx",
           "usable": false,

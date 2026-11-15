@@ -26,3 +26,5 @@ backend/.venv/
 # Phase 2: species KB raw HTTP cache, backend secrets
 data/.kb_cache/
 backend/.env
+# Phase 4: offline species photo cache (scripts/cache_species_images.py), FP16 model is covered by models/*.onnx
+data/species_images/

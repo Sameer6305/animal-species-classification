@@ -28,15 +28,21 @@ export interface SpeciesCardData extends Pick<
 
 interface SpeciesCardProps {
   species: SpeciesCardData
+  /** Preferred photo URL (e.g. the local offline copy); falls back to the Commons thumbnail on error. */
+  imageSrc?: string | null
   /** Wrap the card in a link, e.g. `(children) => <Link to={...}>{children}</Link>`. */
   renderLink?: (children: ReactNode) => ReactNode
   className?: string
 }
 
 /** "Field notes" card: photograph, names, status and the model's accuracy for the class. */
-export function SpeciesCard({ species, renderLink, className }: SpeciesCardProps) {
-  const [failed, setFailed] = useState(false)
-  const src = commonsThumb(species.image?.url, 500, species.image?.width)
+export function SpeciesCard({ species, imageSrc, renderLink, className }: SpeciesCardProps) {
+  const [attempt, setAttempt] = useState(0)
+  const commons = commonsThumb(species.image?.url, 500, species.image?.width)
+  const sources = [imageSrc, commons].filter((u, i, a): u is string => Boolean(u) && a.indexOf(u) === i)
+  const src = sources[attempt] ?? null
+  const failed = src === null && sources.length > 0
+  const setFailed = () => setAttempt((n) => n + 1)
 
   const body = (
     <>
@@ -46,7 +52,7 @@ export function SpeciesCard({ species, renderLink, className }: SpeciesCardProps
             src={src}
             alt={species.common_name}
             loading="lazy"
-            onError={() => setFailed(true)}
+            onError={setFailed}
             className="size-full object-cover transition-transform duration-700 ease-editorial group-hover:scale-[1.03]"
           />
         ) : (

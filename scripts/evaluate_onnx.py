@@ -3,7 +3,7 @@ Phase 0: evaluate the exported ONNX model(s) on the full test split using the
 NumPy/PIL-only preprocessing (scripts/preprocessing.py) and onnxruntime.
 
 - FP32 top-1 / top-5 accuracy, compared with outputs/results/resnet50_results.json
-- int8 variant (if present): accuracy + top-1 agreement with FP32;
+- int8 / fp16 variants (if present): accuracy + top-1 agreement with FP32;
   marked usable iff agreement >= 0.99
 Writes models/resnet50_onnx_eval.json and refreshes models/registry.json.
 
@@ -23,7 +23,7 @@ import onnxruntime as ort
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from model_common import (  # noqa: E402
-    EVAL_PATH, ONNX_INT8_PATH, ONNX_PATH, PROJECT_ROOT, REGISTRY_PATH, load_classes, load_split,
+    EVAL_PATH, ONNX_FP16_PATH, ONNX_INT8_PATH, ONNX_PATH, PROJECT_ROOT, REGISTRY_PATH, load_classes, load_split,
 )
 from preprocessing import load_image, preprocess_batch  # noqa: E402
 
@@ -75,22 +75,32 @@ def main() -> None:
     }
     print(json.dumps(result["fp32"], indent=2))
 
-    if ONNX_INT8_PATH.exists():
+    for name, path in (("int8", ONNX_INT8_PATH), ("fp16", ONNX_FP16_PATH)):
+        if not path.exists():
+            continue
         t = time.time()
-        q = ort.InferenceSession(str(ONNX_INT8_PATH), so, providers=["CPUExecutionProvider"])
+        q = ort.InferenceSession(str(path), so, providers=["CPUExecutionProvider"])
         ql = run(q, paths)
         qp = ql.argmax(1)
         agree = float((qp == pred).mean())
-        result["int8"] = {
-            "onnx": ONNX_INT8_PATH.relative_to(PROJECT_ROOT).as_posix(),
+        p32 = np.exp(logits - logits.max(1, keepdims=True))
+        p32 /= p32.sum(1, keepdims=True)
+        pq = np.exp(ql - ql.max(1, keepdims=True))
+        pq /= pq.sum(1, keepdims=True)
+        result[name] = {
+            "onnx": path.relative_to(PROJECT_ROOT).as_posix(),
+            "size_mb": round(path.stat().st_size / 1e6, 1),
             "top1_accuracy": float((qp == y).mean()),
             "top5_accuracy": float((np.argsort(-ql, 1)[:, :5] == y[:, None]).any(1).mean()),
             "top1_agreement_with_fp32": agree,
+            "top5_set_agreement_with_fp32": float(np.mean([
+                set(a) == set(b) for a, b in zip(np.argsort(-ql, 1)[:, :5], top5)])),
+            "max_abs_prob_diff_vs_fp32": float(np.abs(pq - p32).max()),
             "agreement_threshold": AGREEMENT_THRESHOLD,
             "usable": agree >= AGREEMENT_THRESHOLD,
             "eval_seconds": round(time.time() - t, 1),
         }
-        print(json.dumps(result["int8"], indent=2))
+        print(name, json.dumps(result[name], indent=2))
 
     if args.limit:
         print("--limit given: not writing eval file / registry")
@@ -98,12 +108,15 @@ def main() -> None:
     EVAL_PATH.write_text(json.dumps(result, indent=2) + "\n")
     print(f"wrote {EVAL_PATH.relative_to(PROJECT_ROOT)}")
 
-    if REGISTRY_PATH.exists() and "int8" in result:
+    if REGISTRY_PATH.exists():
         reg = json.loads(REGISTRY_PATH.read_text())
         for m in reg["models"]:
-            if m["id"] == "resnet50" and "int8" in m.get("variants", {}):
-                m["variants"]["int8"]["usable"] = result["int8"]["usable"]
-                m["variants"]["int8"]["top1_agreement_with_fp32"] = result["int8"]["top1_agreement_with_fp32"]
+            if m["id"] != "resnet50":
+                continue
+            for name in ("int8", "fp16"):
+                if name in result and name in m.get("variants", {}):
+                    m["variants"][name]["usable"] = result[name]["usable"]
+                    m["variants"][name]["top1_agreement_with_fp32"] = result[name]["top1_agreement_with_fp32"]
         REGISTRY_PATH.write_text(json.dumps(reg, indent=2) + "\n")
         print(f"updated {REGISTRY_PATH.relative_to(PROJECT_ROOT)}")
 

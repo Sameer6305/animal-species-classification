@@ -51,6 +51,9 @@ class Settings(BaseSettings):
 
     # ------------------------------------------------------------ Phase 2: species KB + chat
     species_kb_path: Path = Path("data/species_kb.json")
+    # Phase 4: local copies of the KB photos (scripts/cache_species_images.py), served at
+    # /api/species-images/... so local mode shows photos offline. Missing dir = empty manifest.
+    species_images_dir: Path = Path("data/species_images")
 
     # Groq (OpenAI-compatible, free tier, no card). Read from WILDLENS_GROQ_API_KEY or GROQ_API_KEY.
     groq_api_key: Optional[SecretStr] = Field(

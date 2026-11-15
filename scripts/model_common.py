@@ -14,6 +14,7 @@ CKPT_PATH = PROJECT_ROOT / "outputs" / "checkpoints" / "resnet50_best.pt"
 
 ONNX_PATH = MODELS_DIR / "resnet50.onnx"
 ONNX_INT8_PATH = MODELS_DIR / "resnet50.int8.onnx"
+ONNX_FP16_PATH = MODELS_DIR / "resnet50.fp16.onnx"
 CLASSES_PATH = MODELS_DIR / "classes.json"
 FC_NPZ_PATH = MODELS_DIR / "resnet50_fc.npz"
 FC_JSON_PATH = MODELS_DIR / "resnet50_fc.json"

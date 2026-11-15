@@ -204,6 +204,21 @@ class SpeciesSummary(BaseModel):
     iucn_code: Optional[str] = Field(None, examples=["EN"])
     iucn_label: Optional[str] = Field(None, examples=["Endangered"])
     model_accuracy: Optional[float] = Field(None, description="ResNet50 per-class test accuracy.", examples=[0.93])
+    # Only with ?extended=true (omitted otherwise, so the default shape is unchanged).
+    rank: Optional[str] = Field(None, description="Taxonomic rank (extended only).", examples=["species"])
+    image: Optional[SpeciesImage] = Field(None, description="Image with attribution (extended only).")
+    inaturalist_observations: Optional[int] = Field(None, description="iNaturalist observations (extended only).")
+    test_images: Optional[int] = Field(None, description="Test-split images for this class (extended only).")
+
+
+class SpeciesImageFiles(BaseModel):
+    hero: Optional[str] = Field(None, description="URL of the ~1280 px local copy.")
+    card: Optional[str] = Field(None, description="URL of the ~500 px local copy.")
+
+
+class SpeciesImagesResponse(BaseModel):
+    count: int = Field(..., description="Species with at least one cached image.")
+    images: Dict[str, SpeciesImageFiles] = Field(..., description="Keyed by species slug.")
 
 
 class SpeciesListResponse(BaseModel):

@@ -229,6 +229,17 @@ export interface SpeciesSummary {
   iucn_code: IucnCode | null
   iucn_label: string | null
   model_accuracy: number | null
+  /** Only with `extended: true`. */
+  rank?: string | null
+  image?: SpeciesImage | null
+  inaturalist_observations?: number | null
+  test_images?: number | null
+}
+
+export interface SpeciesImagesResponse {
+  count: number
+  /** slug -> local copies served by the backend (scripts/cache_species_images.py). */
+  images: Record<string, { hero?: string | null; card?: string | null }>
 }
 
 export interface SpeciesListResponse {
@@ -269,6 +280,8 @@ export interface SpeciesQuery {
   group?: AnimalGroup | string
   /** IUCN code, or `NA` for "no species-level status". */
   status?: IucnCode | 'NA'
+  /** Adds rank, image attribution, observations and test-image counts to each row. */
+  extended?: boolean
 }
 
 /* ------------------------------------------------------------------ chat */
@@ -472,13 +485,15 @@ export const api = {
 
   species: (query: SpeciesQuery = {}, signal?: AbortSignal) => {
     const params = new URLSearchParams()
-    for (const [k, v] of Object.entries(query)) if (v) params.set(k, v)
+    for (const [k, v] of Object.entries(query)) if (v) params.set(k, String(v))
     const qs = params.toString()
     return getJson<SpeciesListResponse>(`/api/species${qs ? `?${qs}` : ''}`, { signal })
   },
 
   speciesDetail: (slug: string, signal?: AbortSignal) =>
     getJson<SpeciesDetail>(`/api/species/${encodeURIComponent(slug)}`, { signal }),
+
+  speciesImages: (signal?: AbortSignal) => getJson<SpeciesImagesResponse>('/api/species-images', { signal }),
 
   metrics: (signal?: AbortSignal) => getJson<MetricsResponse>('/api/metrics', { signal }),
 

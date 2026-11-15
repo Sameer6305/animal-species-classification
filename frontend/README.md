@@ -3,7 +3,8 @@
 React 18 + Vite + TypeScript (strict) + Tailwind CSS v3 + shadcn/ui (Radix), with Framer Motion,
 React Router, TanStack Query, lucide-react and Recharts. Phase 3 of `docs/platform/PLAN.md`:
 design tokens, typography, the layout shell, reusable components and a component preview page.
-Real pages arrive in Phases 4–5; their routes currently show placeholders.
+Phase 4 adds the core pages: Identify, Species Atlas, species profiles and the Field Guide chat.
+Research and About (Phase 5) still show placeholders.
 
 Laptop and desktop only (designed for 1280 px and wider). Below 1024 px a notice replaces the app.
 
@@ -26,25 +27,99 @@ cd backend && .venv/bin/uvicorn app.main:app --reload
 
 Use `WILDLENS_API_URL=http://host:port npm run dev` to proxy elsewhere, or set `VITE_API_BASE`
 at build time to call an API on another origin (that origin must be in `WILDLENS_CORS_ORIGINS`).
-Phase 3 pages do not call the API yet; the typed client is in `src/lib/api.ts`.
+The typed client is in `src/lib/api.ts`.
 
-| Script                               | What it does                                                                                                                                                                               |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `npm run dev`                        | Vite dev server with HMR                                                                                                                                                                   |
-| `npm run build`                      | Type-check, then production build to `dist/`                                                                                                                                               |
-| `npm run preview`                    | Serve `dist/` (also proxies `/api`)                                                                                                                                                        |
-| `npm run lint` / `npm run typecheck` | ESLint (flat config) / `tsc -b`                                                                                                                                                            |
-| `npm test`                           | Vitest + Testing Library (jsdom)                                                                                                                                                           |
-| `npm run format`                     | Prettier                                                                                                                                                                                   |
-| `npm run screenshots -- <outDir>`    | Full-page Playwright screenshots of `/`, `/__ui`, `/identify` and a 404 at 1280×800 and 1920×1080, light and dark (needs `npm run dev` running and `npx playwright install chromium` once) |
+## Inference modes
+
+`src/lib/inference/` is one interface (`InferenceEngine.identify(file)` → top-5, low-confidence flag,
+CAM heatmap, timing) with two implementations, chosen at build time:
+
+| `VITE_INFERENCE_MODE` | Implementation     | What runs where                                                                                                        |
+| --------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `server` (default)    | `ServerInference`  | `/api/predict` + `/api/explain` (amber colormap) in parallel; the backend runs ONNX Runtime on CPU.                    |
+| `browser`             | `BrowserInference` | onnxruntime-web in the page (WebGPU if an adapter is available, else WebAssembly). The photo never leaves the browser. |
+
+Browser mode reproduces the backend exactly in TypeScript (`src/lib/inference/math.ts`): a port of
+Pillow's BILINEAR resize (antialiased triangle filter, 22-bit fixed point, horizontal then vertical
+pass; bit-identical to the backend on the unit-test fixtures), /255, dataset mean/std from
+`models/registry.json`, float64 softmax, stable top-k, and CAM from the `features` output and
+`models/resnet50_fc.json` (ReLU(Σ W·A) → normalise → Pillow float bilinear upsample to the photo size,
+capped at 1024 px → normalise → uint8). Low-confidence threshold 0.5, as on the server.
+onnxruntime-web (and the ~27 MB `.wasm`) is only imported in browser mode; the model is downloaded
+once with a progress bar and kept in Cache Storage (`wildlens-models-v1`).
+
+```bash
+VITE_INFERENCE_MODE=browser npm run dev     # model served from ../models by the dev server
+```
+
+| Variable              | Default                                                                                                  | Meaning                                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `VITE_INFERENCE_MODE` | `server`                                                                                                 | `server` or `browser`.                                                                                  |
+| `VITE_MODEL_URL`      | `/models/resnet50.fp16.onnx` if the registry marks the FP16 variant usable, else `/models/resnet50.onnx` | ONNX file for browser mode; set to an external URL (Hugging Face / GitHub Release) for deployed builds. |
+| `VITE_ORT_EP`         | `auto`                                                                                                   | `auto` (WebGPU, falling back to WASM), `wasm` or `webgpu`.                                              |
+
+**How dev serves the model:** a small Vite plugin in `vite.config.ts` maps `GET /models/<name>.onnx`
+to `../models/<name>.onnx` (read-only, `*.onnx` names in that directory only) for `npm run dev` and
+`npm run preview`. Nothing is copied into `public/` or `dist/`, so the gitignored model is never
+committed or bundled. The small committed metadata (`registry.json`, `classes.json`,
+`resnet50_fc.json`) is imported through the `@models` alias; the 2 MB fc-weights JSON is emitted as
+a hashed asset and fetched only in browser mode. WASM runs single-threaded unless the page is
+cross-origin isolated.
+
+The FP16 variant (`scripts/export_onnx.py --fp16-only`, float16 weights, float32 inputs/outputs)
+is 47 MB instead of 95 MB and agrees with FP32 on 99.97% of test-set top-1 predictions, so it is the
+browser default (see `models/resnet50_onnx_eval.json`). The backend keeps serving FP32.
+
+## Species photos offline
+
+Species cards and profile heroes use local copies when the backend has them, falling back to
+Wikimedia Commons thumbnails. Build the cache once (≈ 1 request/s, honours `Retry-After`):
+
+```bash
+python3 scripts/cache_species_images.py      # from the repo root → data/species_images/ (gitignored)
+```
+
+The backend serves it at `/api/species-images` (manifest) and `/api/species-images/<file>`.
+Attribution always comes from the knowledge base. The Identify sample gallery
+(`public/samples/`, 12 photos, built by `scripts/make_samples.py` from the KB's Commons images
+with credits in `src/lib/samples.json`) is bundled and works offline.
+
+| Script                               | What it does                                                                                                                                                                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                        | Vite dev server with HMR                                                                                                                                                                                                        |
+| `npm run build`                      | Type-check, then production build to `dist/`                                                                                                                                                                                    |
+| `npm run preview`                    | Serve `dist/` (also proxies `/api`)                                                                                                                                                                                             |
+| `npm run lint` / `npm run typecheck` | ESLint (flat config) / `tsc -b`                                                                                                                                                                                                 |
+| `npm test`                           | Vitest + Testing Library (jsdom)                                                                                                                                                                                                |
+| `npm run format`                     | Prettier                                                                                                                                                                                                                        |
+| `npm run e2e`                        | Playwright E2E (`e2e/`): core flows and the browser/server parity test. Starts the backend (:8000) and Vite (:5173) itself unless they are already running; needs `models/resnet50.onnx`                                        |
+| `npm run screenshots -- <outDir>`    | Playwright screenshots of every page and key states (identify result, low confidence, chat) at 1280×800 and 1920×1080, light and dark (needs `npm run dev` and the backend running, and `npx playwright install chromium` once) |
 
 The `/__ui` preview is included only in development (`import.meta.env.DEV`); set
 `VITE_UI_PREVIEW=true` to include it in a production build for review.
 
 Fonts are self-hosted from `@fontsource-variable/*` packages and bundled by Vite, so local mode
-works offline. Species photographs on the preview page are hotlinked Wikimedia Commons thumbnails
-(they need a network connection; cards fall back to a placeholder); the heatmap demo photo
-(`src/fixtures/red-panda.jpg`, CC0) is bundled.
+works offline. Species photographs on the `/__ui` preview page are hotlinked Wikimedia Commons
+thumbnails; the heatmap demo photo (`src/fixtures/red-panda.jpg`, CC0) is bundled. The
+low-confidence screenshot input (`scripts/fixtures/low-confidence.jpg`) is a crop of the CC0
+ladybird photo used by the knowledge base (Commons: `Coccinella-septempunctata-15-fws.jpg`).
+
+## Tests
+
+- `npm test` (Vitest): inference maths against a fixture generated by the backend's own Python
+  (`scripts/make_inference_fixture.py`: Pillow resize, preprocessing, softmax/top-k, CAM), atlas
+  filtering/sorting, chat context handoff and session, plus the Phase 3 component tests.
+- `npm run e2e` (Playwright, real servers): identify a sample → top-1 and heatmap → profile with map
+  → Field Guide retrieval-only answer with citations; atlas search/filter; group profile; and the
+  parity test — 20 images (12 samples + 8 crops from `data/processed/test`, local only) through
+  server and browser (WASM) mode for FP32 and FP16, asserting identical top-5 labels. The parity
+  report is written to `test-results/parity.json`.
+
+## Code splitting
+
+Each route is a `React.lazy` chunk. Leaflet (+ CSS) is imported only by `OccurrenceMap`, itself
+lazy-loaded on profile pages; onnxruntime-web is imported only by `lib/inference/browser.ts`,
+loaded only in browser mode.
 
 ## Layout
 
@@ -53,15 +128,19 @@ src/
   main.tsx, App.tsx            providers (theme, query, motion, tooltip, toaster) and routes
   styles/globals.css           design tokens (CSS variables), fonts, type scale, utilities
   lib/                         api.ts (typed client + SSE parser), theme.tsx, iucn.ts, format.ts,
-                               images.ts (Commons thumbnails), heatmap.ts (CAM colouriser), upload.ts
+                               images.ts (Commons thumbnails), heatmap.ts (CAM colouriser), upload.ts,
+                               inference/ (adapter: server.ts, browser.ts, math.ts, model-cache.ts),
+                               species.ts (queries + local photos), atlas.ts, identify.ts,
+                               chat-session.ts, handoff.ts, store.ts, samples.json
   components/ui/               shadcn/ui primitives themed to the tokens
   components/layout/           AppShell, SiteHeader, SiteFooter, Container, Wordmark, ThemeToggle,
                                ScreenSizeNotice
   components/                  Section, StatTile, SpeciesCard, IucnBadge, IucnScale, ConfidenceBar,
                                PredictionList, HeatmapViewer, UploadDropzone, Attribution,
                                ScientificName, States (EmptyState/ErrorState), charts/, chat/
-  pages/                       HomePage, PlaceholderPage (+ routes.tsx content), NotFoundPage,
-                               dev/UiPreview.tsx
+  pages/                       HomePage, IdentifyPage, AtlasPage, SpeciesProfilePage, AskPage,
+                               PlaceholderPage (+ routes.tsx content), NotFoundPage, dev/UiPreview.tsx
+e2e/                           Playwright specs (core flows, parity)
   fixtures/                    small copies of data/species_kb.json, one /api/explain response
                                (amber colormap, overlay omitted), a metrics summary
 ```
