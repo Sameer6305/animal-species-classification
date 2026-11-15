@@ -117,36 +117,7 @@ Restart `make dev` or `make up`. `backend/.env.example` documents every setting 
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  subgraph Browser
-    UI["React app<br/>(Vite, TypeScript, Tailwind)"]
-    ORTW["onnxruntime-web<br/>(browser mode)"]
-  end
-  subgraph Server["Laptop: make dev or docker compose"]
-    NGINX["nginx :8080<br/>static build, /api proxy,<br/>/models/*.onnx"]
-    API["FastAPI :8000<br/>predict, explain (CAM),<br/>species, metrics, chat"]
-    ORT["ONNX Runtime<br/>ResNet50 FP32"]
-  end
-  subgraph Files["Read-only files"]
-    M["models/<br/>ONNX + registry"]
-    KB["data/species_kb.json"]
-    OUT["outputs/<br/>results + figures"]
-  end
-  subgraph External["Free external services"]
-    WIKI["Wikipedia, Wikidata,<br/>iNaturalist"]
-    GBIF["GBIF map tiles"]
-    GROQ["Groq LLM<br/>(optional)"]
-  end
-  UI -->|/api| NGINX --> API --> ORT --> M
-  API --> KB
-  API --> OUT
-  API -->|chat retrieval| WIKI
-  API -.->|if key set| GROQ
-  UI -.->|FP16 model| ORTW
-  NGINX -.-> M
-  UI -->|tiles| GBIF
-```
+![WildLens architecture: the React app in the browser talks to the FastAPI project server (ONNX Runtime inference, species knowledge base, Field Guide chat, study results); the server looks up Wikipedia, Wikidata, iNaturalist and optionally Groq; the browser loads GBIF map tiles and Wikimedia Commons photos directly. In browser mode, onnxruntime-web runs the FP16 model in the tab.](docs/platform/screenshots/architecture.png)
 
 With `make dev`, Vite serves the app and proxies `/api` instead of nginx. The heatmap is a class
 activation map computed from the network's last convolutional features and classifier weights; for
